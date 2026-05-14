@@ -1,0 +1,113 @@
+# SPDX-License-Identifier: MPL-2.0
+
+# --- Third-party Dependencies ---
+thirdparty/
+
+# --- Build & Binary Directories ---
+build/
+build_*/
+bin/
+lib/
+out/
+cmake-build-*/
+_deps/
+build-release/
+
+# --- CMake Generated Files ---
+CMakeCache.txt
+CMakeFiles/
+*.cmake
+Makefile
+*.ninja
+compile_commands.json
+CMakeUserPresets.json
+install_manifest.txt
+!cmake/Dependencies.cmake
+!cmake/GenerateStrings.cmake
+!cmake/RunOpenXRCTS.cmake
+!cmake/SyncCompileCommands.cmake
+
+# --- IDE & Editors ---
+# VSCode
+.vscode/
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.sdf
+*.opensdf
+*.ipch
+*.sln
+*.vcxproj
+*.vcxproj.filters
+
+# CLion
+.idea/
+
+# Xcode — track project files, ignore user-specific state
+xcuserdata/
+*.xcuserstate
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+# Standalone workspaces (e.g. CocoaPods) — not project.xcworkspace inside .xcodeproj
+/*.xcworkspace
+
+# --- C++ Compilation Artifacts ---
+*.exe
+*.dll
+*.so
+*.dylib
+*.a
+*.lib
+*.pdb
+*.ilk
+*.exp
+*.obj
+*.o
+*.gch
+*.pch
+
+# --- Metal Compiled Shaders ---
+*.metallib
+
+# --- Shader Bytecode ---
+*.spv
+
+# --- OS Specific ---
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Linux
+*~
+
+# --- Android ---
+local.properties
+
+# --- Runtime Config ---
+imgui.ini
+*.log
+
+# --- Claude Code ---
+.claude
+
+# --- Documentation (generated) ---
+docs/api
+
+# --- Python ---
+__pycache__
+.cache
+clients/common/OpenXRStreaming/.build

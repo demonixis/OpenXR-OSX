@@ -1,0 +1,182 @@
+// SPDX-License-Identifier: MPL-2.0
+
+#pragma once
+
+#include <array>
+#include <atomic>
+#include <condition_variable>
+#include <cstdint>
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <netinet/in.h>
+#include <string>
+#include <thread>
+#include <vector>
+
+// Shared protocol definitions
+#include "../../clients/common/src/Protocol.h"
+
+class VideoEncoder;
+class TrackingReceiver;
+
+/**
+ * Streaming server that broadcasts its presence and streams VR content
+ * to a connected headset client (Quest, Pico, etc.).
+ *
+ * Lifecycle:
+ * 1. Start() → begins broadcasting ServerAnnounce on UDP
+ * 2. Client responds with ClientConnect → stops broadcasting, marks connected
+ * 3. SendFrame() called each EndFrame → encodes and streams video
+ * 4. TrackingReceiver feeds pose data into InputManager
+ * 5. Stop() → cleans up
+ */
+class StreamingServer
+{
+public:
+    enum class State
+    {
+        Stopped,
+        Broadcasting,
+        Connected,
+    };
+
+    StreamingServer();
+    ~StreamingServer();
+
+    // Non-copyable
+    StreamingServer(const StreamingServer&) = delete;
+    StreamingServer& operator=(const StreamingServer&) = delete;
+
+    // Start broadcasting and listening for clients
+    bool Start(uint32_t renderWidth, uint32_t renderHeight, uint32_t refreshRateHz);
+    void Stop();
+
+    // Queue a rendered frame for asynchronous latest-frame-only encoding.
+    // leftTexture/rightTexture are retained MTLTexture* views from Swapchain.
+    void SendFrame(void* leftTexture, void* rightTexture);
+
+    // Set the Metal device for VideoEncoder initialization
+    void SetMetalDevice(void* metalDevice) { metalDevice_ = metalDevice; }
+
+    // Check if a client is connected
+    bool IsClientConnected() const { return state_.load() == State::Connected; }
+    State GetState() const { return state_.load(); }
+    uint32_t GetTargetRefreshRateHz() const { return targetRefreshRateHz_.load(); }
+
+    // Get the connected client info
+    std::string GetClientName() const;
+
+    // Access to tracking receiver (for InputManager integration)
+    TrackingReceiver* GetTrackingReceiver() { return trackingReceiver_.get(); }
+
+private:
+    struct CachedPacket
+    {
+        std::vector<uint8_t> data;  // Full packet (header + payload)
+    };
+
+    struct CachedFrame
+    {
+        uint32_t frameIndex = 0;
+        std::vector<CachedPacket> packets;
+    };
+
+    struct PacketDispatchState
+    {
+        std::mutex mutex;
+        std::string clientIp;
+        int videoSocket = -1;
+        bool acceptingPackets = false;
+
+        // Ring buffer of recently sent frames for NACK retransmission
+        static constexpr size_t MaxCachedFrames = 5;
+        std::array<CachedFrame, MaxCachedFrames> cachedFrames;
+        size_t cacheWriteIndex = 0;
+    };
+
+    struct PendingFrame
+    {
+        void* leftTexture = nullptr;
+        void* rightTexture = nullptr;
+        uint32_t frameIndex = 0;
+        int64_t timestampNs = 0;
+        bool valid = false;
+
+        // Render pose at the time this frame was submitted (for ATW correction)
+        float headPosition[3] = {};
+        float headOrientation[4] = {0, 0, 0, 1};
+        bool hasPose = false;
+    };
+
+    void BroadcastThread();
+    void ControlThread();
+    void EncodeThread();
+    std::string GetLocalIpAddress() const;
+    void ReleasePendingFrame(PendingFrame& frame);
+    void HandleClientConnect(const oxr::protocol::ClientConnect& clientConnect,
+                             const sockaddr_in& clientAddr);
+    void HandleClientDisconnect();
+    void HandleLatencyReport(const oxr::protocol::LatencyReport& report);
+    void HandleKeyframeRequest(const oxr::protocol::RequestKeyframe& request);
+    void HandleNackRequest(const oxr::protocol::NackRequest& request);
+    void UpdatePredictionHorizon();
+
+    std::atomic<State> state_{State::Stopped};
+
+    // Server config
+    uint32_t renderWidth_ = 0;
+    uint32_t renderHeight_ = 0;
+    uint32_t scaledWidth_ = 0;      // After resolution_scale (per eye)
+    uint32_t scaledHeight_ = 0;     // After resolution_scale
+    uint32_t refreshRateHz_ = 90;
+    std::atomic<uint32_t> targetRefreshRateHz_{90};
+    std::atomic<float> clientPipelineLatencyMs_{18.0f};
+    std::atomic<float> serverPipelineLatencyMs_{10.0f};
+    std::atomic<float> clientReceiveToSubmitMs_{0.0f};
+    std::atomic<float> clientDecodeLatencyMs_{0.0f};
+    std::atomic<float> clientCompositorLatencyMs_{0.0f};
+
+    // Adaptive bitrate state
+    uint32_t configMaxBitrateMbps_ = 50;
+    std::atomic<uint32_t> currentBitrateMbps_{50};
+    int64_t lastBitrateIncreaseTimeNs_ = 0;
+    uint32_t lastKeyframeRequestCountForAbr_ = 0;
+
+    // Sockets
+    int broadcastSocket_ = -1;
+    int controlSocket_ = -1;
+    int videoSocket_ = -1;
+
+    // Client info
+    std::string clientIp_;
+    uint16_t clientPort_ = 0;
+    std::string clientName_;
+    mutable std::mutex clientMutex_;
+
+    // Threads
+    std::thread broadcastThread_;
+    std::thread controlThread_;
+    std::thread encodeThread_;
+    std::atomic<bool> running_{false};
+    std::condition_variable frameReadyCv_;
+    std::mutex frameMutex_;
+    PendingFrame pendingFrame_;
+    std::shared_ptr<PacketDispatchState> packetDispatchState_;
+    std::atomic<uint32_t> pendingFrameDepthMax_{0};
+    std::atomic<uint32_t> replacedFrameCount_{0};
+    std::atomic<uint32_t> requestKeyframeCount_{0};
+    std::mutex encoderMutex_;
+
+    static void SendNalUnit(const std::shared_ptr<PacketDispatchState>& dispatchState,
+                            uint32_t frameIndex, const uint8_t* data, size_t size,
+                            bool isKeyframe, int64_t timestampNs);
+
+    // Sub-components
+    std::shared_ptr<VideoEncoder> encoder_;
+    std::unique_ptr<TrackingReceiver> trackingReceiver_;
+    void* metalDevice_ = nullptr;
+
+    // Frame sending state
+    uint32_t frameIndex_ = 0;
+};

@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: MPL-2.0
+
+---
+Language: Cpp
+# Microsoft is the closest base style for the project's brace and indentation preferences.
+BasedOnStyle: Microsoft
+Standard: c++20
+
+# --- Indentation ---
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+
+# --- Braces ---
+# Allman keeps opening braces on their own line.
+BreakBeforeBraces: Allman
+
+# --- Namespaces ---
+# Indent namespace contents.
+NamespaceIndentation: All
+
+# --- C++ ---
+PointerAlignment: Left
+ColumnLimit: 120
+
+# --- Keep short control-flow blocks expanded ---
+AllowShortIfStatementsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortBlocksOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+IndentCaseLabels: true

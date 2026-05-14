@@ -1,0 +1,104 @@
+# SPDX-License-Identifier: MPL-2.0
+
+# --- Global Settings ---
+# Auto-detect text files and normalize line endings to LF on commit
+* text=auto
+
+# --- C++ Sources ---
+*.cpp text diff=cpp
+*.c   text diff=cpp
+*.h   text diff=cpp
+*.hpp text diff=cpp
+*.inl text diff=cpp
+
+# --- Objective-C++ ---
+*.mm  text diff=objcpp
+*.m   text diff=objc
+
+# --- Swift ---
+*.swift text diff=swift
+
+# --- Shaders ---
+*.vert  text
+*.frag  text
+*.comp  text
+*.geom  text
+*.tesc  text
+*.tese  text
+*.glsl  text
+*.hlsl  text
+*.metal text
+
+# Compiled shaders (binary)
+*.spv     binary
+*.metallib binary
+
+# --- Build Scripts ---
+CMakeLists.txt text
+*.cmake text
+
+# Scripts (Force LF for shell scripts)
+*.sh text eol=lf
+
+# Windows Scripts (Force CRLF)
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# --- Assets (Binary) ---
+# Images
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.tga  binary
+*.ico  binary
+*.bmp  binary
+*.psd  binary
+
+# Audio
+*.wav binary
+*.ogg binary
+*.mp3 binary
+
+# 3D Models (binary)
+*.glb   binary
+*.fbx   binary
+*.blend binary
+
+# 3D Models (text)
+*.gltf text
+*.mtl  text
+
+# Archives
+*.zip binary
+*.tar binary
+*.gz  binary
+*.7z  binary
+
+# Fonts
+*.ttf binary
+*.otf binary
+
+# --- Xcode Project Files ---
+*.pbxproj           text
+*.xcscheme          text
+*.xcsettings        text
+*.xcworkspacedata   text
+*.xcuserstate       binary
+*.storyboard        text
+*.xib               text
+
+# --- Apple Property Lists ---
+*.plist text
+
+# --- Data & Config ---
+*.json text
+*.toml text
+*.yaml text
+*.yml  text
+*.md   text diff=markdown
+
+# --- Configuration ---
+.editorconfig  text
+.clang-format  text
+.gitignore     text
+.gitattributes text
