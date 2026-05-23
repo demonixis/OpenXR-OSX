@@ -7,8 +7,10 @@
 #include <arpa/inet.h>
 #include <chrono>
 #include <cstring>
+#include <cerrno>
 #include <iterator>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 
 #include <sys/socket.h>
 #include <unistd.h>
@@ -27,6 +29,58 @@ int64_t SteadyClockNowNs()
 {
     return std::chrono::duration_cast<std::chrono::nanoseconds>(
         std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+bool ReadAll(int socket, void* data, size_t size)
+{
+    auto* bytes = static_cast<uint8_t*>(data);
+    size_t receivedTotal = 0;
+    while (receivedTotal < size)
+    {
+        ssize_t received = recv(socket, bytes + receivedTotal, size - receivedTotal, 0);
+        if (received < 0)
+        {
+            if (errno == EINTR)
+            {
+                continue;
+            }
+            return false;
+        }
+        if (received == 0)
+        {
+            return false;
+        }
+        receivedTotal += static_cast<size_t>(received);
+    }
+    return true;
+}
+
+bool ReadTcpRecord(int socket, protocol::TcpRecordHeader& header, std::vector<uint8_t>& payload)
+{
+    if (!ReadAll(socket, &header, sizeof(header)))
+    {
+        return false;
+    }
+    if (header.magic != protocol::TCP_RECORD_MAGIC ||
+        header.version != protocol::TCP_RECORD_VERSION ||
+        header.payloadSize > protocol::TCP_MAX_RECORD_PAYLOAD)
+    {
+        return false;
+    }
+
+    payload.clear();
+    payload.resize(header.payloadSize);
+    if (payload.empty())
+    {
+        return true;
+    }
+    return ReadAll(socket, payload.data(), payload.size());
+}
+
+void ConfigureTcpSocket(int socket)
+{
+    int nodelay = 1;
+    setsockopt(socket, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
 }
 
 } // namespace
@@ -137,6 +191,36 @@ bool NetworkReceiver::StartReceiving(const char* serverIp, uint16_t videoPort,
     return true;
 }
 
+bool NetworkReceiver::StartReceivingTcp(uint16_t videoPort, OnNalUnitCallback callback)
+{
+    videoSocket_ = socket(AF_INET, SOCK_STREAM, 0);
+    if (videoSocket_ < 0)
+    {
+        LOGE("Failed to create USB TCP video socket");
+        return false;
+    }
+    ConfigureTcpSocket(videoSocket_);
+
+    sockaddr_in addr = {};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(videoPort);
+    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+
+    if (connect(videoSocket_, (sockaddr*)&addr, sizeof(addr)) < 0)
+    {
+        LOGE("Failed to connect USB TCP video socket to 127.0.0.1:%d", videoPort);
+        close(videoSocket_);
+        videoSocket_ = -1;
+        return false;
+    }
+
+    nalCallback_ = std::move(callback);
+    receiving_.store(true);
+    receiveThread_ = std::thread(&NetworkReceiver::ReceiveTcpThread, this, nalCallback_);
+    LOGI("USB TCP video receiver connected to localhost:%d", videoPort);
+    return true;
+}
+
 void NetworkReceiver::StopDiscovery()
 {
     discovering_.store(false);
@@ -189,6 +273,62 @@ void NetworkReceiver::ReceiveThread(OnNalUnitCallback callback)
 
     LOGI("Video receive thread ended (packets=%u frames=%u dropped=%u)",
          packetsReceived_.load(), framesDelivered_.load(), framesDropped_.load());
+}
+
+void NetworkReceiver::ReceiveTcpThread(OnNalUnitCallback callback)
+{
+    LOGI("USB TCP video receive thread started");
+    while (receiving_.load())
+    {
+        protocol::TcpRecordHeader header = {};
+        std::vector<uint8_t> payload;
+        if (!ReadTcpRecord(videoSocket_, header, payload))
+        {
+            break;
+        }
+
+        if (header.type == protocol::TcpRecordType::RenderPose)
+        {
+            if (payload.size() >= sizeof(protocol::TcpRenderPose))
+            {
+                StoreRenderPose(*reinterpret_cast<const protocol::TcpRenderPose*>(payload.data()));
+            }
+            continue;
+        }
+
+        if (header.type != protocol::TcpRecordType::VideoNal ||
+            payload.size() < sizeof(protocol::TcpVideoNalHeader))
+        {
+            continue;
+        }
+
+        const auto* nalHeader = reinterpret_cast<const protocol::TcpVideoNalHeader*>(payload.data());
+        const uint8_t* nalData = payload.data() + sizeof(protocol::TcpVideoNalHeader);
+        size_t nalSize = payload.size() - sizeof(protocol::TcpVideoNalHeader);
+        if (nalSize > nalHeader->payloadSize)
+        {
+            nalSize = nalHeader->payloadSize;
+        }
+
+        uint32_t packetCount = packetsReceived_.fetch_add(1) + 1;
+        uint32_t delivered = framesDelivered_.fetch_add(1) + 1;
+        int64_t receiveTimeNs = SteadyClockNowNs();
+        lastCompletedFrameReceiveTimeNs_.store(receiveTimeNs);
+        if (packetCount <= 5 || packetCount % 500 == 0)
+        {
+            LOGI("USB TCP NAL #%u: frame=%u payload=%zu flags=0x%02x delivered=%u",
+                 packetCount, nalHeader->frameIndex, nalSize, nalHeader->flags, delivered);
+        }
+
+        if (callback)
+        {
+            callback(nalData, nalSize, nalHeader->presentationTimeNs, receiveTimeNs);
+        }
+    }
+
+    receiving_.store(false);
+    LOGI("USB TCP video receive thread ended (packets=%u records=%u)",
+         packetsReceived_.load(), framesDelivered_.load());
 }
 
 void NetworkReceiver::ReassembleFrame(const protocol::VideoPacketHeader& header,
@@ -436,6 +576,35 @@ void NetworkReceiver::StoreRenderPose(const protocol::VideoPacketHeader& header,
     pose.presentationTimeUs = header.presentationTimeNs / 1000;
     memcpy(pose.position, poseData, sizeof(float) * 3);
     memcpy(pose.orientation, poseData + 3, sizeof(float) * 4);
+    pose.valid = true;
+
+    std::lock_guard<std::mutex> lock(renderPoseMutex_);
+    latestRenderPose_ = pose;
+
+    for (RenderPose& existing : renderPoses_)
+    {
+        if (existing.presentationTimeUs == pose.presentationTimeUs)
+        {
+            existing = pose;
+            return;
+        }
+    }
+
+    renderPoses_.push_back(pose);
+    while (renderPoses_.size() > MaxRenderPoses)
+    {
+        renderPoses_.pop_front();
+    }
+}
+
+void NetworkReceiver::StoreRenderPose(const protocol::TcpRenderPose& tcpPose)
+{
+    RenderPose pose = {};
+    pose.frameIndex = tcpPose.frameIndex;
+    pose.presentationTimeNs = tcpPose.presentationTimeNs;
+    pose.presentationTimeUs = tcpPose.presentationTimeNs / 1000;
+    memcpy(pose.position, tcpPose.position, sizeof(float) * 3);
+    memcpy(pose.orientation, tcpPose.orientation, sizeof(float) * 4);
     pose.valid = true;
 
     std::lock_guard<std::mutex> lock(renderPoseMutex_);

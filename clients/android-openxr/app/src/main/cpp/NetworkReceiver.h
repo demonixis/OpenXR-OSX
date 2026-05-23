@@ -43,6 +43,7 @@ public:
     bool StartDiscovery(OnServerFoundCallback callback);
     void StopDiscovery();
     bool StartReceiving(const char* serverIp, uint16_t videoPort, OnNalUnitCallback callback);
+    bool StartReceivingTcp(uint16_t videoPort, OnNalUnitCallback callback);
 
     // Set the control socket for sending NACKs (owned by XrApp, not NetworkReceiver)
     void SetControlSocket(int socket, const char* serverIp);
@@ -78,12 +79,14 @@ public:
 private:
     void DiscoveryThread(OnServerFoundCallback callback);
     void ReceiveThread(OnNalUnitCallback callback);
+    void ReceiveTcpThread(OnNalUnitCallback callback);
     void ReassembleFrame(const protocol::VideoPacketHeader& header,
                          const uint8_t* payload, size_t payloadSize);
     bool TryFecRecovery();
     void SendNack(uint32_t frameIndex, uint32_t totalPackets);
     void StoreRenderPose(const protocol::VideoPacketHeader& header,
                          const uint8_t* payload, size_t payloadSize);
+    void StoreRenderPose(const protocol::TcpRenderPose& pose);
 
     int videoSocket_ = -1;
     int discoverySocket_ = -1;

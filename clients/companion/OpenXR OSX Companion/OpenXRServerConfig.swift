@@ -9,6 +9,7 @@ struct OpenXRServerConfig: Equatable {
     var resolutionScale = 0.75
     var keyframeIntervalSec = 2
     var encoderPreset: EncoderPreset = .balanced
+    var transport: StreamingTransportSetting = .auto
     var fileLogging = true
     var questLogcat = false
 
@@ -43,6 +44,9 @@ struct OpenXRServerConfig: Equatable {
     # quality  = best visual quality, slightly higher latency
     encoder_preset = "balanced"
 
+    # Streaming transport: "auto", "wifi", or "usb_adb".
+    transport = "auto"
+
     [logging]
     # Write server logs to ~/Library/Application Support/OpenXR-OSX/openxr_osx.log.
     file_logging = true
@@ -73,6 +77,9 @@ struct OpenXRServerConfig: Equatable {
         if let value = stringValue("encoder_preset", in: text), let preset = EncoderPreset(rawValue: value) {
             config.encoderPreset = preset
         }
+        if let value = stringValue("transport", in: text), let transport = StreamingTransportSetting(rawValue: value) {
+            config.transport = transport
+        }
         if let value = boolValue("file_logging", in: text) {
             config.fileLogging = value
         }
@@ -99,6 +106,7 @@ struct OpenXRServerConfig: Equatable {
                 ("resolution_scale", decimalString(resolutionScale)),
                 ("keyframe_interval_sec", "\(keyframeIntervalSec)"),
                 ("encoder_preset", "\"\(encoderPreset.rawValue)\""),
+                ("transport", "\"\(transport.rawValue)\""),
             ]),
             ("logging", [
                 ("file_logging", boolString(fileLogging)),

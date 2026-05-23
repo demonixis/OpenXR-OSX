@@ -7,10 +7,12 @@
 #include <android_native_app_glue.h>
 #include <arpa/inet.h>
 #include <algorithm>
+#include <cerrno>
 #include <cmath>
 #include <cstring>
 #include <jni.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <numeric>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -50,6 +52,14 @@ void main() {
 }
 )";
 
+namespace
+{
+
+constexpr auto kUsbAdbRetryInterval = std::chrono::seconds(1);
+constexpr uint32_t kUsbAdbRetryLogInterval = 10;
+
+} // namespace
+
 static const char* BLIT_FRAGMENT_SHADER_OES = R"(#version 300 es
 #extension GL_OES_EGL_image_external_essl3 : require
 precision mediump float;
@@ -68,6 +78,88 @@ static int64_t SteadyClockNowNs()
 {
     return std::chrono::duration_cast<std::chrono::nanoseconds>(
         std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+static bool SendAll(int socket, const void* data, size_t size)
+{
+    const auto* bytes = static_cast<const uint8_t*>(data);
+    size_t sentTotal = 0;
+    while (sentTotal < size)
+    {
+        ssize_t sent = send(socket, bytes + sentTotal, size - sentTotal, MSG_NOSIGNAL);
+        if (sent < 0)
+        {
+            if (errno == EINTR)
+            {
+                continue;
+            }
+            return false;
+        }
+        if (sent == 0)
+        {
+            return false;
+        }
+        sentTotal += static_cast<size_t>(sent);
+    }
+    return true;
+}
+
+static bool ReadAll(int socket, void* data, size_t size)
+{
+    auto* bytes = static_cast<uint8_t*>(data);
+    size_t receivedTotal = 0;
+    while (receivedTotal < size)
+    {
+        ssize_t received = recv(socket, bytes + receivedTotal, size - receivedTotal, 0);
+        if (received < 0)
+        {
+            if (errno == EINTR)
+            {
+                continue;
+            }
+            return false;
+        }
+        if (received == 0)
+        {
+            return false;
+        }
+        receivedTotal += static_cast<size_t>(received);
+    }
+    return true;
+}
+
+static bool SendTcpRecord(int socket, protocol::TcpRecordType type,
+                          const void* payload, size_t payloadSize)
+{
+    protocol::TcpRecordHeader header = {};
+    header.type = type;
+    header.payloadSize = static_cast<uint32_t>(payloadSize);
+    return SendAll(socket, &header, sizeof(header)) &&
+           (payloadSize == 0 || SendAll(socket, payload, payloadSize));
+}
+
+static bool ReadTcpRecord(int socket, protocol::TcpRecordHeader& header,
+                          std::vector<uint8_t>& payload)
+{
+    if (!ReadAll(socket, &header, sizeof(header)))
+    {
+        return false;
+    }
+    if (header.magic != protocol::TCP_RECORD_MAGIC ||
+        header.version != protocol::TCP_RECORD_VERSION ||
+        header.payloadSize > protocol::TCP_MAX_RECORD_PAYLOAD)
+    {
+        return false;
+    }
+    payload.clear();
+    payload.resize(header.payloadSize);
+    return payload.empty() || ReadAll(socket, payload.data(), payload.size());
+}
+
+static void ConfigureTcpSocket(int socket)
+{
+    int nodelay = 1;
+    setsockopt(socket, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
 }
 
 static float ClampNormalized(float value)
@@ -840,12 +932,18 @@ void XrApp::StartNetworking()
     lastFrameAcquireTimeNs_ = 0;
     lastReportedAcquireTimeNs_ = 0;
     skippedDecodedFrames_ = 0;
+    transportMode_ = TransportMode::WifiUdp;
+    lastUsbAdbRetryTime_ = {};
+    usbAdbRetryAttempts_ = 0;
 
-    // WiFi/UDP discovery mode
-    // NOTE: USB/TCP mode disabled — stale adb reverse port forwarding creates
-    // ghost connections that prevent WiFi discovery from starting.
-    // TODO: Re-enable USB with proper detection (Intent extra or sideloaded config)
-    LOGI("Starting WiFi discovery mode");
+    if (TryStartUsbAdbTransport())
+    {
+        LOGI("USB ADB transport selected");
+        return;
+    }
+    lastUsbAdbRetryTime_ = std::chrono::steady_clock::now();
+
+    LOGI("USB ADB transport unavailable, starting WiFi discovery mode");
 
     networkReceiver_->StartDiscovery(
         [this](const protocol::ServerAnnounce& server, const char* serverIp) {
@@ -901,6 +999,39 @@ bool XrApp::OpenControlSocket(const char* serverIp)
     return true;
 }
 
+bool XrApp::OpenUsbControlSocket()
+{
+    if (controlTcpSocket_ >= 0)
+    {
+        close(controlTcpSocket_);
+        controlTcpSocket_ = -1;
+    }
+
+    controlTcpSocket_ = socket(AF_INET, SOCK_STREAM, 0);
+    if (controlTcpSocket_ < 0)
+    {
+        LOGE("Failed to create USB TCP control socket");
+        return false;
+    }
+    ConfigureTcpSocket(controlTcpSocket_);
+    timeval timeout = {0, 250000};
+    setsockopt(controlTcpSocket_, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+
+    sockaddr_in addr = {};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(protocol::CONTROL_PORT);
+    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+
+    if (connect(controlTcpSocket_, (sockaddr*)&addr, sizeof(addr)) < 0)
+    {
+        close(controlTcpSocket_);
+        controlTcpSocket_ = -1;
+        return false;
+    }
+
+    return true;
+}
+
 void XrApp::CloseControlSocket()
 {
     if (controlSocket_ >= 0)
@@ -910,9 +1041,85 @@ void XrApp::CloseControlSocket()
         close(controlSocket_);
         controlSocket_ = -1;
     }
+    if (controlTcpSocket_ >= 0)
+    {
+        SendTcpRecord(controlTcpSocket_, protocol::TcpRecordType::Disconnect, nullptr, 0);
+        close(controlTcpSocket_);
+        controlTcpSocket_ = -1;
+    }
 }
 
 void XrApp::OnServerFound(const protocol::ServerAnnounce& server, const char* serverIp)
+{
+    ConfigureServerConnection(server, serverIp, TransportMode::WifiUdp);
+}
+
+bool XrApp::TryStartUsbAdbTransport(bool logUnavailable)
+{
+    if (!OpenUsbControlSocket())
+    {
+        if (logUnavailable)
+        {
+            LOGI("USB ADB control socket not available; adb reverse may not be configured");
+        }
+        return false;
+    }
+
+    protocol::TcpRecordHeader header = {};
+    std::vector<uint8_t> payload;
+    if (!ReadTcpRecord(controlTcpSocket_, header, payload) ||
+        header.type != protocol::TcpRecordType::ServerAnnounce ||
+        payload.size() < sizeof(protocol::ServerAnnounce))
+    {
+        if (logUnavailable)
+        {
+            LOGW("USB ADB control connected but no valid ServerAnnounce was received");
+        }
+        close(controlTcpSocket_);
+        controlTcpSocket_ = -1;
+        return false;
+    }
+
+    auto server = *reinterpret_cast<const protocol::ServerAnnounce*>(payload.data());
+    ConfigureServerConnection(server, "127.0.0.1", TransportMode::UsbAdbTcp);
+    return serverFound_;
+}
+
+void XrApp::RetryUsbAdbTransportIfNeeded()
+{
+    if (serverFound_)
+    {
+        return;
+    }
+    if (!networkReceiver_ || !trackingSender_ || !videoDecoder_)
+    {
+        return;
+    }
+
+    auto now = std::chrono::steady_clock::now();
+    if (lastUsbAdbRetryTime_.time_since_epoch().count() != 0 &&
+        now - lastUsbAdbRetryTime_ < kUsbAdbRetryInterval)
+    {
+        return;
+    }
+
+    lastUsbAdbRetryTime_ = now;
+    ++usbAdbRetryAttempts_;
+    bool logAttempt = usbAdbRetryAttempts_ <= 3 ||
+                      usbAdbRetryAttempts_ % kUsbAdbRetryLogInterval == 0;
+    if (logAttempt)
+    {
+        LOGI("Retrying USB ADB transport (attempt %u)", usbAdbRetryAttempts_);
+    }
+
+    if (TryStartUsbAdbTransport(logAttempt))
+    {
+        LOGI("USB ADB transport selected after retry");
+    }
+}
+
+void XrApp::ConfigureServerConnection(const protocol::ServerAnnounce& server,
+                                      const char* serverIp, TransportMode transportMode)
 {
     if (serverFound_)
     {
@@ -936,7 +1143,11 @@ void XrApp::OnServerFound(const protocol::ServerAnnounce& server, const char* se
         return;
     }
 
-    LOGI("Server discovered: %s at %s (%ux%u @ %uHz, encoded %ux%u)",
+    transportMode_ = transportMode;
+    const bool usbAdb = transportMode_ == TransportMode::UsbAdbTcp;
+
+    LOGI("Server discovered via %s: %s at %s (%ux%u @ %uHz, encoded %ux%u)",
+         usbAdb ? "USB ADB" : "WiFi",
          server.serverName, serverIp, server.renderWidth, server.renderHeight,
          server.refreshRateHz, server.encodedWidth, server.encodedHeight);
 
@@ -1003,21 +1214,46 @@ void XrApp::OnServerFound(const protocol::ServerAnnounce& server, const char* se
     }
 
     // Start receiving video packets (bind socket BEFORE telling server we're ready)
+    bool receivingStarted = false;
     if (networkReceiver_)
     {
-        networkReceiver_->StartReceiving(serverIp, serverVideoPort_,
-            [this](const uint8_t* data, size_t size, int64_t timestampNs, int64_t receiveTimeNs)
-            {
-                OnNalUnitReceived(data, size, timestampNs, receiveTimeNs);
-            });
+        auto nalCallback = [this](const uint8_t* data, size_t size,
+                                  int64_t timestampNs, int64_t receiveTimeNs)
+        {
+            OnNalUnitReceived(data, size, timestampNs, receiveTimeNs);
+        };
+        if (usbAdb)
+        {
+            receivingStarted = networkReceiver_->StartReceivingTcp(serverVideoPort_, nalCallback);
+        }
+        else
+        {
+            receivingStarted = networkReceiver_->StartReceiving(serverIp, serverVideoPort_, nalCallback);
+        }
+    }
+    if (!receivingStarted)
+    {
+        LOGE("Failed to start %s video receiver", usbAdb ? "USB ADB TCP" : "WiFi UDP");
+        serverFound_ = false;
+        transportMode_ = TransportMode::WifiUdp;
+        if (usbAdb && controlTcpSocket_ >= 0)
+        {
+            close(controlTcpSocket_);
+            controlTcpSocket_ = -1;
+        }
+        return;
     }
 
     // Connect tracking sender to server
     if (trackingSender_)
     {
-        if (trackingSender_->Connect(serverIp, serverTrackingPort_))
+        bool trackingConnected = usbAdb
+            ? trackingSender_->ConnectTcp(serverTrackingPort_)
+            : trackingSender_->Connect(serverIp, serverTrackingPort_);
+        if (trackingConnected)
         {
-            LOGI("Tracking sender connected to %s:%d", serverIp, serverTrackingPort_);
+            LOGI("Tracking sender connected via %s to %s:%d",
+                 usbAdb ? "USB ADB TCP" : "WiFi UDP", serverIp, serverTrackingPort_);
         }
         else
         {
@@ -1025,11 +1261,11 @@ void XrApp::OnServerFound(const protocol::ServerAnnounce& server, const char* se
         }
     }
 
-    if (!OpenControlSocket(serverIp))
+    if (!usbAdb && !OpenControlSocket(serverIp))
     {
         LOGE("Failed to open control socket");
     }
-    else if (networkReceiver_)
+    else if (!usbAdb && networkReceiver_)
     {
         // Share control socket with NetworkReceiver for NACK sending
         networkReceiver_->SetControlSocket(controlSocket_, serverIp);
@@ -1037,13 +1273,23 @@ void XrApp::OnServerFound(const protocol::ServerAnnounce& server, const char* se
 
     // NOW send ClientConnect — server will start sending video, and we're already listening
     SendClientConnect(serverIp);
+    if (usbAdb && networkReceiver_)
+    {
+        networkReceiver_->StopDiscovery();
+    }
 
-    LOGI("Connection setup complete — video receiver bound before ClientConnect sent");
+    LOGI("Connection setup complete via %s — video receiver ready before ClientConnect sent",
+         usbAdb ? "USB ADB" : "WiFi");
 }
 
 void XrApp::SendClientConnect(const char* serverIp)
 {
-    if (controlSocket_ < 0 && !OpenControlSocket(serverIp))
+    const bool usbAdb = transportMode_ == TransportMode::UsbAdbTcp;
+    if (!usbAdb && controlSocket_ < 0 && !OpenControlSocket(serverIp))
+    {
+        return;
+    }
+    if (usbAdb && controlTcpSocket_ < 0)
     {
         return;
     }
@@ -1057,15 +1303,25 @@ void XrApp::SendClientConnect(const char* serverIp)
     connect.refreshRateHz = clientRefreshRateHz_;
     strncpy(connect.deviceName, "Quest", sizeof(connect.deviceName) - 1);
 
-    send(controlSocket_, &connect, sizeof(connect), MSG_DONTWAIT);
+    if (usbAdb)
+    {
+        SendTcpRecord(controlTcpSocket_, protocol::TcpRecordType::ClientConnect,
+                      &connect, sizeof(connect));
+    }
+    else
+    {
+        send(controlSocket_, &connect, sizeof(connect), MSG_DONTWAIT);
+    }
 
-    LOGI("Sent ClientConnect to %s:%d (refresh=%uHz)", serverIp, protocol::CONTROL_PORT,
+    LOGI("Sent ClientConnect via %s to %s:%d (refresh=%uHz)",
+         usbAdb ? "USB ADB" : "WiFi", serverIp, protocol::CONTROL_PORT,
          clientRefreshRateHz_);
 }
 
 void XrApp::SendLatencyReport()
 {
-    if (controlSocket_ < 0)
+    const bool usbAdb = transportMode_ == TransportMode::UsbAdbTcp;
+    if ((!usbAdb && controlSocket_ < 0) || (usbAdb && controlTcpSocket_ < 0))
     {
         return;
     }
@@ -1095,7 +1351,15 @@ void XrApp::SendLatencyReport()
     report.decodeLatencyMs = static_cast<float>(decodeSummary.average);
     report.compositorLatencyMs = static_cast<float>(compositorSummary.average);
     report.totalClientLatencyMs = static_cast<float>(totalSummary.average);
-    send(controlSocket_, &report, sizeof(report), MSG_DONTWAIT);
+    if (usbAdb)
+    {
+        SendTcpRecord(controlTcpSocket_, protocol::TcpRecordType::Control,
+                      &report, sizeof(report));
+    }
+    else
+    {
+        send(controlSocket_, &report, sizeof(report), MSG_DONTWAIT);
+    }
 
     LOGI("Latency report: recv->submit avg/p95=%.2f/%.2fms decode=%.2f/%.2f compositor=%.2f/%.2f total=%.2f/%.2f age=%.2f/%.2f skipped=%u",
          receiveSummary.average, receiveSummary.p95,
@@ -1116,7 +1380,8 @@ void XrApp::SendLatencyReport()
 
 void XrApp::RequestKeyframe(uint32_t reasonFlags, uint32_t detail)
 {
-    if (controlSocket_ < 0)
+    const bool usbAdb = transportMode_ == TransportMode::UsbAdbTcp;
+    if ((!usbAdb && controlSocket_ < 0) || (usbAdb && controlTcpSocket_ < 0))
     {
         return;
     }
@@ -1132,7 +1397,15 @@ void XrApp::RequestKeyframe(uint32_t reasonFlags, uint32_t detail)
     request.type = protocol::ControlType::RequestKeyframe;
     request.reasonFlags = reasonFlags;
     request.detail = detail;
-    send(controlSocket_, &request, sizeof(request), MSG_DONTWAIT);
+    if (usbAdb)
+    {
+        SendTcpRecord(controlTcpSocket_, protocol::TcpRecordType::Control,
+                      &request, sizeof(request));
+    }
+    else
+    {
+        send(controlSocket_, &request, sizeof(request), MSG_DONTWAIT);
+    }
     lastKeyframeRequestTime_ = now;
 
     LOGW("Requested keyframe reasons=0x%x detail=%u", reasonFlags, detail);
@@ -1202,6 +1475,8 @@ void XrApp::RunFrame()
         serverFound_ = false;
         StartNetworking();
     }
+
+    RetryUsbAdbTransportIfNeeded();
 
     // Poll OpenXR events
     XrEventDataBuffer event = {XR_TYPE_EVENT_DATA_BUFFER};

@@ -99,6 +99,16 @@ static bool ParseBool(const std::string& value)
     return lower == "true" || lower == "1" || lower == "yes";
 }
 
+static std::string ParseString(std::string value)
+{
+    value = Trim(value);
+    if (value.size() >= 2 && value.front() == '"' && value.back() == '"')
+    {
+        return value.substr(1, value.size() - 2);
+    }
+    return value;
+}
+
 ConfigValues ParseConfigToml(std::istream& input, const ConfigValues& defaults)
 {
     ConfigValues values = defaults;
@@ -170,14 +180,18 @@ ConfigValues ParseConfigToml(std::istream& input, const ConfigValues& defaults)
             }
             else if (key == "encoder_preset")
             {
-                value = Trim(value);
-                if (!value.empty() && value.front() == '"' && value.back() == '"' && value.size() >= 2)
-                {
-                    value = value.substr(1, value.size() - 2);
-                }
+                value = ParseString(value);
                 if (value == "quality" || value == "balanced" || value == "speed")
                 {
                     values.encoderPreset = value;
+                }
+            }
+            else if (key == "transport")
+            {
+                value = ParseString(value);
+                if (value == "auto" || value == "wifi" || value == "usb_adb")
+                {
+                    values.streamingTransport = value;
                 }
             }
         }
@@ -277,7 +291,7 @@ bool Config::ReloadIfChangedLocked(bool force)
     if (!force)
     {
         spdlog::info(
-            "OpenXR OSX: Reloaded config from {} (runtime_enabled={} bitrate={}Mbps fov={} res_scale={:.2f} keyframe={}s preset={} quest_logcat={})",
+            "OpenXR OSX: Reloaded config from {} (runtime_enabled={} bitrate={}Mbps fov={} res_scale={:.2f} keyframe={}s preset={} transport={} quest_logcat={})",
             configFilePath,
             newValues.runtimeEnabled,
             newValues.bitrateMbps,
@@ -285,6 +299,7 @@ bool Config::ReloadIfChangedLocked(bool force)
             newValues.resolutionScale,
             newValues.keyframeIntervalSec,
             newValues.encoderPreset,
+            newValues.streamingTransport,
             newValues.questLogcat);
     }
 
@@ -351,9 +366,9 @@ void Config::SetupLogging()
     spdlog::info("OpenXR OSX Runtime starting (config from {})", configFilePath);
     spdlog::info("  runtime_enabled={} file_logging={} quest_logcat={}",
                   values_.runtimeEnabled, values_.fileLogging, values_.questLogcat);
-    spdlog::info("  bitrate={}Mbps fov={}° res_scale={:.2f} keyframe={}s preset={}",
+    spdlog::info("  bitrate={}Mbps fov={}° res_scale={:.2f} keyframe={}s preset={} transport={}",
                   values_.bitrateMbps, values_.fovDegrees, values_.resolutionScale,
-                  values_.keyframeIntervalSec, values_.encoderPreset);
+                  values_.keyframeIntervalSec, values_.encoderPreset, values_.streamingTransport);
 }
 
 // ─── Quest logcat capture ────────────────────────────────────────────────────

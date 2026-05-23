@@ -4,6 +4,7 @@
 
 #include <android/log.h>
 #include <arpa/inet.h>
+#include <cerrno>
 #include <cstring>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -16,6 +17,35 @@
 
 namespace oxr
 {
+
+namespace
+{
+
+bool SendAll(int socket, const void* data, size_t size)
+{
+    const auto* bytes = static_cast<const uint8_t*>(data);
+    size_t sentTotal = 0;
+    while (sentTotal < size)
+    {
+        ssize_t sent = send(socket, bytes + sentTotal, size - sentTotal, MSG_NOSIGNAL);
+        if (sent < 0)
+        {
+            if (errno == EINTR)
+            {
+                continue;
+            }
+            return false;
+        }
+        if (sent == 0)
+        {
+            return false;
+        }
+        sentTotal += static_cast<size_t>(sent);
+    }
+    return true;
+}
+
+} // namespace
 
 TrackingSender::~TrackingSender()
 {
@@ -55,6 +85,7 @@ void TrackingSender::Disconnect()
     {
         close(socket_);
         socket_ = -1;
+        usbMode_ = false;
         LOGI("Tracking sender disconnected");
     }
 }
@@ -101,15 +132,11 @@ bool TrackingSender::Send(const protocol::TrackingPacket& packet)
 
     if (usbMode_)
     {
-        // TCP framing: [4-byte network-order size][tracking data]
-        uint32_t netSize = htonl(sizeof(packet));
-        ssize_t sent = send(socket_, &netSize, sizeof(netSize), MSG_NOSIGNAL);
-        if (sent != sizeof(netSize))
-        {
-            return false;
-        }
-        sent = send(socket_, &packet, sizeof(packet), MSG_NOSIGNAL);
-        return sent == sizeof(packet);
+        protocol::TcpRecordHeader header = {};
+        header.type = protocol::TcpRecordType::Tracking;
+        header.payloadSize = sizeof(packet);
+        return SendAll(socket_, &header, sizeof(header)) &&
+               SendAll(socket_, &packet, sizeof(packet));
     }
     else
     {

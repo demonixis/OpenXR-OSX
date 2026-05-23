@@ -13,6 +13,10 @@ struct CompanionLauncherTests {
         try testLauncherMergeDeduplicatesManualApps()
         try testRuntimeManifestGeneration()
         try testTerminalScriptQuoting()
+        try testQuestUsbDeviceParsing()
+        try testQuestUsbReverseParsing()
+        try testQuestUsbAdbCandidatePaths()
+        try testServerConfigTransportRoundTrip()
         print("Companion launcher tests passed")
     }
 
@@ -98,6 +102,58 @@ struct CompanionLauncherTests {
         )
         try expect(script.contains("export XR_RUNTIME_JSON='/tmp/Runtime'\\''s/openxr_osx.json'"), "Expected quoted runtime path")
         try expect(script.contains("exec '/Applications/Quoted App.app/Contents/MacOS/it'\\''works'"), "Expected quoted executable path")
+    }
+
+    private static func testQuestUsbDeviceParsing() throws {
+        let devices = QuestUsbBridge.parseDevices("""
+        List of devices attached
+        1WMHH000000000 device usb:336592896X product:hollywood model:Quest_3 device:eureka transport_id:4
+        ABC unauthorized usb:1-1 transport_id:5
+        """)
+
+        try expect(devices.count == 2, "Expected two parsed adb devices")
+        try expect(devices[0].serial == "1WMHH000000000", "Expected serial")
+        try expect(devices[0].isUsable, "Expected device state to be usable")
+        try expect(!devices[1].isUsable, "Expected unauthorized state to be unusable")
+    }
+
+    private static func testQuestUsbReverseParsing() throws {
+        let ports = QuestUsbBridge.parseReversePorts("""
+        UsbFfs tcp:55504 tcp:55504
+        UsbFfs tcp:9944 tcp:9944
+        UsbFfs tcp:9945 tcp:9945
+        UsbFfs tcp:9946 tcp:9946
+        """)
+
+        try expect(ports == Set([9944, 9945, 9946]), "Expected configured USB reverse ports")
+    }
+
+    private static func testQuestUsbAdbCandidatePaths() throws {
+        let candidates = QuestUsbBridge.adbCandidatePaths(
+            environment: [
+                "ANDROID_HOME": "/tmp/android-home",
+                "ANDROID_SDK_ROOT": "/tmp/android-root",
+                "PATH": "/custom/bin:/usr/bin",
+            ],
+            homeDirectory: "/Users/tester"
+        )
+
+        try expect(candidates.contains("/tmp/android-home/platform-tools/adb"), "Expected ANDROID_HOME adb path")
+        try expect(candidates.contains("/tmp/android-root/platform-tools/adb"), "Expected ANDROID_SDK_ROOT adb path")
+        try expect(candidates.contains("/Users/tester/Library/Android/sdk/platform-tools/adb"), "Expected default Android SDK adb path")
+        try expect(candidates.contains("/opt/homebrew/bin/adb"), "Expected Homebrew adb path")
+        try expect(candidates.contains("/custom/bin/adb"), "Expected PATH adb path")
+    }
+
+    private static func testServerConfigTransportRoundTrip() throws {
+        let parsed = OpenXRServerConfig.parse(from: """
+        [streaming]
+        transport = "usb_adb"
+        """)
+        try expect(parsed.transport == .usbAdb, "Expected USB ADB transport parse")
+
+        let merged = parsed.merged(into: OpenXRServerConfig.defaultText)
+        try expect(merged.contains("transport = \"usb_adb\""), "Expected USB ADB transport serialization")
     }
 
     private static func makeAppBundle(

@@ -16,6 +16,7 @@ struct ConfigValues
     float resolutionScale = 0.75f;  // Encode resolution multiplier (0.25-1.0)
     uint32_t keyframeIntervalSec = 2; // Seconds between forced keyframes
     std::string encoderPreset = "balanced"; // "quality", "balanced", "speed"
+    std::string streamingTransport = "auto"; // "auto", "wifi", "usb_adb"
 
     bool fileLogging = true;        // Write logs to openxr_osx.log
     bool questLogcat = false;       // Capture Quest logcat to openxr_osx_quest.log

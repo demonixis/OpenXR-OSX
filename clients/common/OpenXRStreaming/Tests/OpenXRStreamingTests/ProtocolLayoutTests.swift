@@ -11,6 +11,10 @@ final class ProtocolLayoutTests: XCTestCase {
 
     func testVideoAndControlLayoutsMatchCppWireFormat() {
         XCTAssertEqual(MemoryLayout<VideoPacketHeader>.size, 24)
+        XCTAssertEqual(MemoryLayout<TcpRecordHeader>.size, 12)
+        XCTAssertEqual(MemoryLayout<TcpVideoNalHeader>.size, 24)
+        XCTAssertEqual(MemoryLayout<TcpRenderPose>.size, 48)
+        XCTAssertEqual(OXRProtocol.tcpRecordMagic, 0x4f585255)
         XCTAssertEqual(MemoryLayout<LatencyReport>.size, 20)
         XCTAssertEqual(MemoryLayout<RequestKeyframe>.size, 12)
         XCTAssertEqual(MemoryLayout<HapticsCommand>.size, 16)

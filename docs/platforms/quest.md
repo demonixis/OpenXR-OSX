@@ -32,11 +32,13 @@ Quest hand tracking requires the Android manifest to declare:
 
 If these entries are missing, the runtime can still operate, but headset-side hand joints will not be available.
 
+USB diagnostics use Android's official `UsbManager` host/accessory intents and filters. The app requests app-level USB permission when Android exposes a real USB device or accessory to the headset. ADB reverse streaming itself does not require or produce that app permission dialog; it may instead trigger the headset's USB debugging authorization prompt when the Mac is first authorized for ADB.
+
 ## Runtime Interaction
 
 The Quest client:
 
-- discovers the runtime on the local network
+- tries USB ADB reverse TCP first, then falls back to local-network UDP discovery when USB is unavailable
 - connects and advertises codec and refresh-rate preferences
 - receives encoded video frames and matches render-pose metadata to each decoded frame before projection submission
 - sends head, controller, and optional hand-tracking data back to the runtime
@@ -45,9 +47,24 @@ The Quest client:
 
 When supported by the headset, the client also enables a first-pass `XR_FB_foveation` path.
 
+## USB ADB Transport
+
+The USB path is optimized for sideloaded Quest development. The macOS Companion can detect an authorized Quest through `adb devices -l`, clear stale reverse mappings, and apply:
+
+```bash
+adb -s <serial> reverse tcp:9944 tcp:9944
+adb -s <serial> reverse tcp:9945 tcp:9945
+adb -s <serial> reverse tcp:9946 tcp:9946
+```
+
+With `streaming.transport = "auto"`, the Quest app connects to `127.0.0.1:9946` first. If the ADB reverse control channel answers, the client receives `ServerAnnounce`, opens TCP video and tracking channels, and sends `ClientConnect`. If USB is unavailable, it falls back to WiFi UDP discovery while continuing to retry USB periodically so launch order is not critical. With `streaming.transport = "usb_adb"`, the runtime disables WiFi discovery fallback.
+
+USB TCP sends full H.265 NAL records and render-pose records, so UDP FEC and NACK recovery are disabled on this path.
+
 ## Current Status
 
 - Real `XR_EXT_hand_tracking` joints are fed from the Android client into the runtime.
+- USB ADB reverse TCP streaming is available alongside WiFi UDP streaming.
 - Refresh rate is negotiated from the client.
 - Latency reporting and keyframe requests are wired into the control path.
 - The client applies frame-exact render poses for projection submission so headset compositor reprojection has the pose used to render the displayed frame.

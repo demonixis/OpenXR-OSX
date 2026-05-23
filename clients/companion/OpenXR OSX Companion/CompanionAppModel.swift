@@ -18,6 +18,9 @@ final class CompanionAppModel: ObservableObject, @unchecked Sendable {
     @Published var isLogPanelVisible = false
     @Published var appLogs: [String: String] = [:]
     @Published var isDropTargeted = false
+    @Published var questUsbDevices: [QuestUsbDevice] = []
+    @Published var selectedQuestUsbSerial: String?
+    @Published var questUsbStatus = "USB ADB transport is not configured."
     @Published var statusMessage = ""
     @Published var errorMessage: String?
 
@@ -115,6 +118,7 @@ final class CompanionAppModel: ObservableObject, @unchecked Sendable {
         refreshRuntimeStatus()
         refreshRuntimeInstallStatus()
         reloadLauncherApps()
+        refreshQuestUsbDevices()
     }
 
     func loadConfigFromDisk() {
@@ -143,6 +147,74 @@ final class CompanionAppModel: ObservableObject, @unchecked Sendable {
             statusMessage = "Saved runtime configuration."
         } catch {
             errorMessage = "Failed to save config: \(error.localizedDescription)"
+        }
+    }
+
+    func revealConfigFile() {
+        do {
+            if !fileManager.fileExists(atPath: configFilePath) {
+                let directory = (configFilePath as NSString).deletingLastPathComponent
+                try fileManager.createDirectory(atPath: directory, withIntermediateDirectories: true, attributes: nil)
+                let text = serverConfig.merged(into: currentConfigText)
+                try text.write(toFile: configFilePath, atomically: true, encoding: .utf8)
+                currentConfigText = text
+                lastKnownConfigModificationDate = configModificationDate()
+                statusMessage = "Created runtime configuration."
+            }
+            revealInFinder(configFilePath)
+        } catch {
+            errorMessage = "Failed to reveal config: \(error.localizedDescription)"
+        }
+    }
+
+    func refreshQuestUsbDevices() {
+        do {
+            questUsbDevices = try QuestUsbBridge.devices()
+            let usableDevices = questUsbDevices.filter(\.isUsable)
+            if let selectedQuestUsbSerial,
+               !usableDevices.contains(where: { $0.serial == selectedQuestUsbSerial }) {
+                self.selectedQuestUsbSerial = usableDevices.first?.serial
+            } else if selectedQuestUsbSerial == nil {
+                selectedQuestUsbSerial = usableDevices.first?.serial
+            }
+
+            if questUsbDevices.isEmpty {
+                questUsbStatus = "No Quest device reported by adb."
+            } else if usableDevices.isEmpty {
+                questUsbStatus = "ADB sees device(s), but none are authorized for reverse tunneling."
+            } else if usableDevices.count > 1, selectedQuestUsbSerial == nil {
+                questUsbStatus = "Multiple Quest devices found; select one before configuring USB."
+            } else {
+                questUsbStatus = "Ready to configure USB ADB reverse for \(usableDevices.count) authorized device\(usableDevices.count == 1 ? "" : "s")."
+                if let selectedQuestUsbSerial,
+                   let configuredPorts = try? QuestUsbBridge.reverseMappings(for: selectedQuestUsbSerial),
+                   !configuredPorts.isEmpty {
+                    questUsbStatus += " Active reverse ports: \(configuredPorts.sorted().map(String.init).joined(separator: ", "))."
+                }
+            }
+        } catch {
+            questUsbDevices = []
+            selectedQuestUsbSerial = nil
+            questUsbStatus = "adb is unavailable or failed: \(error.localizedDescription)"
+        }
+    }
+
+    func configureQuestUsbReverse() {
+        guard let serial = selectedQuestUsbSerial,
+              questUsbDevices.contains(where: { $0.serial == serial && $0.isUsable }) else {
+            questUsbStatus = "Select an authorized Quest device before configuring USB."
+            return
+        }
+
+        do {
+            let configuredPorts = try QuestUsbBridge.configureReverse(for: serial)
+            serverConfig.transport = .auto
+            saveStructuredConfig()
+            questUsbStatus = "Verified adb reverse for \(serial) on ports \(configuredPorts.sorted().map(String.init).joined(separator: ", "))."
+            statusMessage = "Configured Quest USB ADB transport."
+        } catch {
+            questUsbStatus = "Failed to configure adb reverse: \(error.localizedDescription)"
+            errorMessage = questUsbStatus
         }
     }
 

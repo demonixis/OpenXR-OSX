@@ -12,6 +12,25 @@ enum EncoderPreset: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+enum StreamingTransportSetting: String, CaseIterable, Identifiable {
+    case auto
+    case wifi
+    case usbAdb = "usb_adb"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .auto:
+            return "Auto"
+        case .wifi:
+            return "WiFi"
+        case .usbAdb:
+            return "USB ADB"
+        }
+    }
+}
+
 struct CompanionPaths {
     static let appSupportDirectory = NSString(string: "~/Library/Application Support/OpenXR-OSX").expandingTildeInPath
     static let configFilePath = (appSupportDirectory as NSString).appendingPathComponent("openxr_osx.toml")
@@ -32,6 +51,148 @@ struct CompanionPaths {
 struct RuntimeRegistrationStatus {
     var activeRuntimeExists = false
     var activeRuntimeTarget: String?
+}
+
+struct QuestUsbDevice: Identifiable, Equatable {
+    let serial: String
+    let state: String
+    let details: String
+
+    var id: String { serial }
+    var isUsable: Bool { state == "device" }
+    var displayName: String {
+        if details.isEmpty {
+            return "\(serial) (\(state))"
+        }
+        return "\(serial) (\(state)) \(details)"
+    }
+}
+
+enum QuestUsbBridge {
+    static let reversePorts = [9944, 9945, 9946]
+
+    static func devices() throws -> [QuestUsbDevice] {
+        let adb = try adbExecutablePath()
+        return try parseDevices(Shell.run(adb, ["devices", "-l"]))
+    }
+
+    @discardableResult
+    static func configureReverse(for serial: String) throws -> Set<Int> {
+        let adb = try adbExecutablePath()
+        for port in reversePorts {
+            _ = try? Shell.run(adb, ["-s", serial, "reverse", "--remove", "tcp:\(port)"])
+        }
+        for port in reversePorts {
+            _ = try Shell.run(adb, ["-s", serial, "reverse", "tcp:\(port)", "tcp:\(port)"])
+        }
+        let configuredPorts = try reverseMappings(for: serial)
+        let missingPorts = reversePorts.filter { !configuredPorts.contains($0) }
+        if !missingPorts.isEmpty {
+            throw QuestUsbBridgeError.missingReversePorts(missingPorts)
+        }
+        return configuredPorts
+    }
+
+    static func reverseMappings(for serial: String) throws -> Set<Int> {
+        let adb = try adbExecutablePath()
+        return parseReversePorts(try Shell.run(adb, ["-s", serial, "reverse", "--list"]))
+    }
+
+    static func adbExecutablePath() throws -> String {
+        if let path = resolveAdbExecutablePath() {
+            return path
+        }
+        throw QuestUsbBridgeError.adbNotFound
+    }
+
+    static func resolveAdbExecutablePath(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        homeDirectory: String = NSHomeDirectory()
+    ) -> String? {
+        let fileManager = FileManager.default
+        for candidate in adbCandidatePaths(environment: environment, homeDirectory: homeDirectory) {
+            if fileManager.isExecutableFile(atPath: candidate) {
+                return candidate
+            }
+        }
+
+        if let shellPath = try? Shell.run("/bin/zsh", ["-lc", "command -v adb"]),
+           !shellPath.isEmpty,
+           fileManager.isExecutableFile(atPath: shellPath) {
+            return shellPath
+        }
+
+        return nil
+    }
+
+    static func adbCandidatePaths(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        homeDirectory: String = NSHomeDirectory()
+    ) -> [String] {
+        var paths: [String] = []
+        func append(_ path: String?) {
+            guard let path, !path.isEmpty, !paths.contains(path) else { return }
+            paths.append(path)
+        }
+
+        append(environment["ANDROID_HOME"].map { "\($0)/platform-tools/adb" })
+        append(environment["ANDROID_SDK_ROOT"].map { "\($0)/platform-tools/adb" })
+        append("\(homeDirectory)/Library/Android/sdk/platform-tools/adb")
+        append("/opt/homebrew/bin/adb")
+        append("/usr/local/bin/adb")
+
+        if let pathEnvironment = environment["PATH"] {
+            for directory in pathEnvironment.split(separator: ":") {
+                append("\(directory)/adb")
+            }
+        }
+
+        return paths
+    }
+
+    static func parseDevices(_ output: String) -> [QuestUsbDevice] {
+        output
+            .split(whereSeparator: { $0.isNewline })
+            .dropFirst()
+            .compactMap { line -> QuestUsbDevice? in
+                let parts = line.split(maxSplits: 2, omittingEmptySubsequences: true) {
+                    $0 == " " || $0 == "\t"
+                }
+                guard parts.count >= 2 else {
+                    return nil
+                }
+                let serial = String(parts[0])
+                let state = String(parts[1])
+                let details = parts.count >= 3 ? String(parts[2]) : ""
+                return QuestUsbDevice(serial: serial, state: state, details: details)
+            }
+    }
+
+    static func parseReversePorts(_ output: String) -> Set<Int> {
+        var ports = Set<Int>()
+        for line in output.split(whereSeparator: { $0.isNewline }) {
+            let text = String(line)
+            for port in reversePorts where text.contains("tcp:\(port) tcp:\(port)") {
+                ports.insert(port)
+            }
+        }
+        return ports
+    }
+}
+
+enum QuestUsbBridgeError: LocalizedError {
+    case adbNotFound
+    case missingReversePorts([Int])
+
+    var errorDescription: String? {
+        switch self {
+        case .adbNotFound:
+            return "adb was not found from the Companion app. Install Android Platform Tools or make sure adb exists at /opt/homebrew/bin/adb, /usr/local/bin/adb, or ~/Library/Android/sdk/platform-tools/adb."
+        case let .missingReversePorts(ports):
+            let portList = ports.map(String.init).joined(separator: ", ")
+            return "adb reverse did not report the expected mapping for port(s): \(portList)."
+        }
+    }
 }
 
 enum ShellCommandError: LocalizedError {

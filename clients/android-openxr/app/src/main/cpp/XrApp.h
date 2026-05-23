@@ -50,6 +50,12 @@ public:
     bool IsSessionActive() const { return sessionRunning_; }
 
 private:
+    enum class TransportMode
+    {
+        WifiUdp,
+        UsbAdbTcp,
+    };
+
     bool CreateInstance(struct android_app* app);
     bool InitEgl();
     bool CreateSession();
@@ -64,7 +70,12 @@ private:
     void StopNetworking();
 
     void OnServerFound(const protocol::ServerAnnounce& server, const char* serverIp);
+    void ConfigureServerConnection(const protocol::ServerAnnounce& server, const char* serverIp,
+                                   TransportMode transportMode);
+    bool TryStartUsbAdbTransport(bool logUnavailable = true);
+    void RetryUsbAdbTransportIfNeeded();
     bool OpenControlSocket(const char* serverIp);
+    bool OpenUsbControlSocket();
     void CloseControlSocket();
     void SendClientConnect(const char* serverIp);
     void SendLatencyReport();
@@ -149,9 +160,13 @@ private:
     std::unique_ptr<TrackingSender> trackingSender_;
     std::unique_ptr<VideoDecoder> videoDecoder_;
     int controlSocket_ = -1;
+    int controlTcpSocket_ = -1;
+    TransportMode transportMode_ = TransportMode::WifiUdp;
 
     bool serverFound_ = false;
     std::atomic<bool> needsReconnect_{false};
+    std::chrono::steady_clock::time_point lastUsbAdbRetryTime_;
+    uint32_t usbAdbRetryAttempts_ = 0;
     char serverIp_[64] = {};
     uint16_t serverVideoPort_ = 0;
     uint16_t serverTrackingPort_ = 0;

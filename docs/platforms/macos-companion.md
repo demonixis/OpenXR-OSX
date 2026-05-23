@@ -105,6 +105,7 @@ The structured editor covers the current runtime keys:
 - `streaming.resolution_scale`
 - `streaming.keyframe_interval_sec`
 - `streaming.encoder_preset`
+- `streaming.transport`
 - `logging.file_logging`
 - `logging.quest_logcat`
 
@@ -114,5 +115,7 @@ The runtime reloads config file changes opportunistically:
 - `fov_degrees` is picked up on subsequent view location work
 - `keyframe_interval_sec` is picked up by the encode loop without restarting the process
 - `quest_logcat` can start or stop adb capture after a config save
-- `bitrate_mbps`, `resolution_scale`, and `encoder_preset` apply when streaming or the encoder is recreated
+- `bitrate_mbps`, `resolution_scale`, `encoder_preset`, and `transport` apply when streaming or the encoder is recreated
 - file logger sink setup still requires a restart
+
+The Quest USB ADB section detects authorized `adb` devices, applies reverse mappings for ports `9944`, `9945`, and `9946`, then verifies them with `adb reverse --list`. This prepares the USB TCP transport; it is separate from Android `UsbManager` app permission prompts.

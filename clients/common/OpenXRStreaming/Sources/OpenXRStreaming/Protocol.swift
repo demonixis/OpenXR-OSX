@@ -12,6 +12,57 @@ public enum OXRProtocol {
     public static let controlPort: UInt16 = 9946
     public static let handJointCount: Int = 26
     public static let maxPacketPayload: Int = 1400
+    public static let tcpRecordMagic: UInt32 = 0x4f585255
+    public static let tcpRecordVersion: UInt16 = 1
+    public static let tcpMaxRecordPayload: UInt32 = 16 * 1024 * 1024
+}
+
+public enum StreamingTransport: UInt8, Sendable {
+    case auto = 0
+    case wifi = 1
+    case usbAdb = 2
+}
+
+public enum TcpRecordType: UInt16, Sendable {
+    case serverAnnounce = 0x0001
+    case clientConnect = 0x0002
+    case videoNal = 0x0003
+    case renderPose = 0x0004
+    case tracking = 0x0005
+    case control = 0x0006
+    case disconnect = 0x0007
+}
+
+public struct TcpRecordHeader: Sendable {
+    public var magic: UInt32 = OXRProtocol.tcpRecordMagic
+    public var version: UInt16 = OXRProtocol.tcpRecordVersion
+    public var type: UInt16 = TcpRecordType.control.rawValue
+    public var payloadSize: UInt32 = 0
+
+    public init() {}
+}
+
+public struct TcpVideoNalHeader: Sendable {
+    public var presentationTimeNs: Int64 = 0
+    public var frameIndex: UInt32 = 0
+    public var payloadSize: UInt32 = 0
+    public var flags: UInt8 = 0
+    public var codec: UInt8 = 0
+    public var reserved: UInt16 = 0
+    public var reserved2: UInt32 = 0
+
+    public init() {}
+}
+
+public struct TcpRenderPose: Sendable {
+    public var presentationTimeNs: Int64 = 0
+    public var frameIndex: UInt32 = 0
+    public var reserved: UInt32 = 0
+    public var position: (Float, Float, Float) = (0, 0, 0)
+    public var orientation: (Float, Float, Float, Float) = (0, 0, 0, 1)
+    public var reserved2: UInt32 = 0
+
+    public init() {}
 }
 
 // MARK: - Discovery

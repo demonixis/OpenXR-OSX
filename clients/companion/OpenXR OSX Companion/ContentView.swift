@@ -377,6 +377,12 @@ struct ContentView: View {
                         }
                     }
 
+                    Picker("Transport", selection: $model.serverConfig.transport) {
+                        ForEach(StreamingTransportSetting.allCases) { transport in
+                            Text(transport.displayName).tag(transport)
+                        }
+                    }
+
                     HStack {
                         Button("Save Configuration") {
                             model.saveStructuredConfig()
@@ -386,8 +392,47 @@ struct ContentView: View {
                         }
                         Spacer()
                         Button("Reveal Config") {
-                            revealInFinder(model.configFilePath)
+                            model.revealConfigFile()
                         }
+                    }
+                }
+                .padding(.top, 8)
+            }
+            .padding(.top, 14)
+
+            GroupBox("Quest USB ADB") {
+                VStack(alignment: .leading, spacing: 12) {
+                    if model.questUsbDevices.isEmpty {
+                        Text("No adb device found.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Picker("Quest device", selection: Binding(
+                            get: { model.selectedQuestUsbSerial ?? "" },
+                            set: { model.selectedQuestUsbSerial = $0.isEmpty ? nil : $0 }
+                        )) {
+                            Text("Select a device").tag("")
+                            ForEach(model.questUsbDevices) { device in
+                                Text(device.displayName).tag(device.serial)
+                            }
+                        }
+                    }
+
+                    Text(model.questUsbStatus)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    HStack {
+                        Button("Refresh Devices") {
+                            model.refreshQuestUsbDevices()
+                        }
+                        Button("Configure USB Reverse") {
+                            model.configureQuestUsbReverse()
+                        }
+                        .disabled(model.selectedQuestUsbSerial == nil ||
+                                  !model.questUsbDevices.contains(where: {
+                                      $0.serial == model.selectedQuestUsbSerial && $0.isUsable
+                                  }))
+                        Spacer()
                     }
                 }
                 .padding(.top, 8)

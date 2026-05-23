@@ -31,6 +31,10 @@ keyframe_interval_sec = 2
 # quality  = best visual quality, slightly higher latency
 encoder_preset = "balanced"
 
+# Streaming transport: "auto" tries USB ADB reverse and WiFi, "wifi" disables USB TCP
+# listeners, and "usb_adb" disables WiFi discovery fallback.
+transport = "auto"
+
 [logging]
 # Write server logs to ~/Library/Application Support/OpenXR-OSX/openxr_osx.log.
 file_logging = true
