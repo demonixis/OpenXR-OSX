@@ -29,10 +29,6 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
-        with:
-          # TEMP: allow this branch to populate the cache so we can measure
-          # hot-cache speedup before merge. Revert before merging.
-          cache-read-only: false
 
       - name: Build Android client
         run: scripts/ci/build-android.sh
