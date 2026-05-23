@@ -47,6 +47,12 @@ jobs:
           install: true
           cache: true
 
+      - name: Configure ccache
+        uses: hendrikmuhs/ccache-action@v1.2.23
+        with:
+          key: runtime-heavy-${{ runner.os }}
+          max-size: 1G
+
       - name: Heavy macOS runtime verification
         run: scripts/ci/verify-macos-runtime-heavy.sh
 

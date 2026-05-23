@@ -17,7 +17,17 @@ fi
 
 log "Configuring heavy macOS runtime verification build"
 cd "${REPO_ROOT}"
-run cmake -B "${BUILD_DIR}" -G Ninja -DCMAKE_BUILD_TYPE=Debug
+
+cmake_extra_args=()
+if command -v ccache >/dev/null 2>&1; then
+    log "ccache detected; enabling CMake compiler launcher"
+    cmake_extra_args+=(
+        -DCMAKE_C_COMPILER_LAUNCHER=ccache
+        -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+    )
+fi
+
+run cmake -B "${BUILD_DIR}" -G Ninja -DCMAKE_BUILD_TYPE=Debug "${cmake_extra_args[@]}"
 
 log "Building runtime and test targets"
 run cmake --build "${BUILD_DIR}" --parallel
