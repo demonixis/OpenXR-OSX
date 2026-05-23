@@ -7,6 +7,16 @@ on:
       - reopened
       - synchronize
       - edited
+  workflow_dispatch:
+    inputs:
+      base_ref:
+        description: Base ref or commit to compare against
+        required: false
+        default: origin/main
+      head_ref:
+        description: Head ref or commit to lint
+        required: false
+        default: HEAD
 
 permissions:
   contents: read
@@ -24,4 +34,15 @@ jobs:
           fetch-depth: 0
 
       - name: Lint commit messages
-        run: python3 scripts/ci/commitlint.py range "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}"
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          INPUT_BASE_REF: ${{ inputs.base_ref }}
+          INPUT_HEAD_REF: ${{ inputs.head_ref }}
+        run: |
+          if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
+            python3 scripts/ci/commitlint.py range "${INPUT_BASE_REF}" "${INPUT_HEAD_REF}"
+          else
+            python3 scripts/ci/commitlint.py range "${PR_BASE_SHA}" "${PR_HEAD_SHA}"
+          fi
