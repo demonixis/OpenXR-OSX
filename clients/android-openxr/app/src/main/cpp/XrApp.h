@@ -70,6 +70,7 @@ private:
     bool CreateSwapchains();
     bool InitializeHandTracking();
     bool InitializeFoveation();
+    bool InitializeDisplayRefreshRate();
     void ShutdownFoveation();
     void ShutdownHandTracking();
     void HandleSessionStateChange(XrSessionState newState);
@@ -124,9 +125,13 @@ private:
     bool foveationAvailable_ = false;
     bool foveationConfigurationAvailable_ = false;
     bool swapchainUpdateAvailable_ = false;
+    bool displayRefreshRateAvailable_ = false;
     PFN_xrCreateFoveationProfileFB xrCreateFoveationProfileFB_ = nullptr;
     PFN_xrDestroyFoveationProfileFB xrDestroyFoveationProfileFB_ = nullptr;
     PFN_xrUpdateSwapchainFB xrUpdateSwapchainFB_ = nullptr;
+    PFN_xrEnumerateDisplayRefreshRatesFB xrEnumerateDisplayRefreshRatesFB_ = nullptr;
+    PFN_xrGetDisplayRefreshRateFB xrGetDisplayRefreshRateFB_ = nullptr;
+    PFN_xrRequestDisplayRefreshRateFB xrRequestDisplayRefreshRateFB_ = nullptr;
     XrFoveationProfileFB foveationProfile_ = XR_NULL_HANDLE;
 
     // Controller actions

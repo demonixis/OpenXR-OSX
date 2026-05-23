@@ -34,6 +34,20 @@ If these entries are missing, the runtime can still operate, but headset-side ha
 
 USB diagnostics use Android's official `UsbManager` host/accessory intents and filters. The app requests app-level USB permission when Android exposes a real USB device or accessory to the headset. ADB reverse streaming itself does not require or produce that app permission dialog; it may instead trigger the headset's USB debugging authorization prompt when the Mac is first authorized for ADB.
 
+## Preferred Display Refresh
+
+The Quest client's preferred display refresh request is build-configured. The default repository value
+is `72`, and you can override it per build with a Gradle property:
+
+```bash
+./gradlew assembleDebug -PopenxrClientDisplayRefreshRateHz=72
+```
+
+The property is passed through Gradle into CMake as
+`OPENXR_OSX_PREFERRED_DISPLAY_REFRESH_RATE_HZ`. Set it to a headset-supported rate such as `72`,
+`80`, `90`, or `120`. If the runtime does not advertise the requested rate, the client logs the
+mismatch and keeps the current headset refresh.
+
 ## Runtime Interaction
 
 The Quest client:
@@ -41,6 +55,7 @@ The Quest client:
 - tries USB ADB reverse TCP first, then falls back to local-network UDP discovery when USB is unavailable
 - returns to discovery/retry automatically when the runtime or OpenXR app session stops
 - connects and advertises codec and refresh-rate preferences
+- requests the build-configured display refresh rate when `XR_FB_display_refresh_rate` is available
 - receives encoded video frames and matches render-pose metadata to each decoded frame before projection submission
 - sends head, controller, and optional hand-tracking data back to the runtime
 - reports latency measurements

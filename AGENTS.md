@@ -11,7 +11,8 @@ runtime installation, runtime configuration, and runtime registration workflows.
 runtime tests, `XR_EXT_conformance_automation`, `XR_EXT_hand_interaction`, and `XR_EXT_debug_utils`
 are in place. The Quest/Android client now feeds real `XR_EXT_hand_tracking` joints into the runtime,
 supports WiFi UDP and USB ADB reverse TCP streaming, matches per-frame render poses for headset
-compositor reprojection, and enables a first-pass dynamic `XR_FB_foveation` path when the headset supports it. The visionOS
+compositor reprojection, enables a first-pass dynamic `XR_FB_foveation` path when the headset supports it,
+and can request a build-configured display refresh rate. The visionOS
 viewer now starts from a minimal floating search window, enters immersive VR automatically when the
 stream connects, and sends head pose, hand joints, and first-pass tracked accessory controller data
 while the immersive space is open. The macOS SwiftUI companion now targets direct notarized
@@ -51,6 +52,7 @@ Avoid duplicating the same guidance in multiple files. If commands, platform sta
 - The streaming encoder queue is latest-frame-only.
 - Quest USB streaming uses reconnecting ADB reverse TCP on localhost ports `9944`, `9945`, and `9946`; app-level Android USB permission dialogs are only for `UsbManager`-visible devices/accessories and are not required for ADB reverse streaming.
 - Headset refresh rate is negotiated from the client.
+- The Quest Android client requests its preferred display refresh rate from the build-time `OPENXR_OSX_PREFERRED_DISPLAY_REFRESH_RATE_HZ` value.
 - Latency reports feed bounded pose prediction.
 - Headset clients must match `VIDEO_FLAG_RENDER_POSE` metadata to the decoded frame before projection submission.
 - Quest hand tracking depends on the Android manifest permission `com.oculus.permission.HAND_TRACKING` and the optional `oculus.software.handtracking` feature.
