@@ -920,6 +920,11 @@ void XrApp::ShutdownFoveation()
 
 void XrApp::StartNetworking()
 {
+    if (networkReceiver_ || trackingSender_ || videoDecoder_)
+    {
+        ResetConnection("restarting networking");
+    }
+
     networkReceiver_ = std::make_unique<NetworkReceiver>();
     trackingSender_ = std::make_unique<TrackingSender>();
     videoDecoder_ = std::make_unique<VideoDecoder>();
@@ -935,6 +940,8 @@ void XrApp::StartNetworking()
     transportMode_ = TransportMode::WifiUdp;
     lastUsbAdbRetryTime_ = {};
     usbAdbRetryAttempts_ = 0;
+    connectionState_.store(ConnectionState::Disconnected);
+    needsReconnect_.store(false);
 
     if (TryStartUsbAdbTransport())
     {
@@ -944,6 +951,7 @@ void XrApp::StartNetworking()
     lastUsbAdbRetryTime_ = std::chrono::steady_clock::now();
 
     LOGI("USB ADB transport unavailable, starting WiFi discovery mode");
+    connectionState_.store(ConnectionState::Discovering);
 
     networkReceiver_->StartDiscovery(
         [this](const protocol::ServerAnnounce& server, const char* serverIp) {
@@ -956,20 +964,81 @@ void XrApp::StartNetworking()
 
 void XrApp::StopNetworking()
 {
-    CloseControlSocket();
+    ResetConnection("networking stopped");
+}
 
+void XrApp::ResetConnection(const char* reason)
+{
+    LOGI("Resetting connection: %s", reason != nullptr ? reason : "unspecified");
+    CloseControlSocket();
     if (networkReceiver_)
     {
         networkReceiver_->Stop();
+        networkReceiver_.reset();
     }
     if (trackingSender_)
     {
         trackingSender_->Disconnect();
+        trackingSender_.reset();
     }
     if (videoDecoder_)
     {
         videoDecoder_->Shutdown();
+        videoDecoder_.reset();
     }
+
+    transportMode_ = TransportMode::WifiUdp;
+    connectionState_.store(ConnectionState::Disconnected);
+    needsReconnect_.store(false);
+    serverIp_[0] = '\0';
+    serverVideoPort_ = 0;
+    serverTrackingPort_ = 0;
+    connectionTime_ = {};
+    lastUsbAdbRetryTime_ = {};
+    usbAdbRetryAttempts_ = 0;
+
+    videoWidth_ = 0;
+    videoHeight_ = 0;
+    blitWidth_ = 0;
+    blitHeight_ = 0;
+    blitOffsetX_ = 0;
+    blitOffsetY_ = 0;
+    macEyeAspect_ = 0.0f;
+    hasVideoTexture_ = false;
+    hasCurrentRenderPose_ = false;
+    currentRenderPose_ = {};
+    lastVideoFrameTime_ = {};
+    videoContentUMin_ = 0.0f;
+    videoContentUMax_ = 1.0f;
+    videoContentVMin_ = 0.0f;
+    videoContentVMax_ = 1.0f;
+    lastFrameReceiveTimeNs_ = 0;
+    lastFrameSubmitTimeNs_ = 0;
+    lastFrameAcquireTimeNs_ = 0;
+    lastReportedAcquireTimeNs_ = 0;
+    skippedDecodedFrames_ = 0;
+    renderPoseHitCount_ = 0;
+    renderPoseMissCount_ = 0;
+    lastRenderPoseLogTime_ = {};
+    lastLatencyReportTime_ = {};
+    lastKeyframeRequestTime_ = {};
+    lastObservedDroppedFrames_ = 0;
+    latencySamples_ = {};
+    nalUnitsReceived_ = 0;
+    decodedFrameCount_ = 0;
+}
+
+void XrApp::OnConnectionLost(const char* reason)
+{
+    ConnectionState state = connectionState_.load();
+    if (state == ConnectionState::Disconnected || state == ConnectionState::Discovering)
+    {
+        return;
+    }
+
+    LOGI("Connection lost: %s", reason != nullptr ? reason : "unspecified");
+    connectionState_.store(ConnectionState::Disconnected);
+    needsReconnect_.store(true);
 }
 
 bool XrApp::OpenControlSocket(const char* serverIp)
@@ -1056,12 +1125,19 @@ void XrApp::OnServerFound(const protocol::ServerAnnounce& server, const char* se
 
 bool XrApp::TryStartUsbAdbTransport(bool logUnavailable)
 {
+    if (IsConnected() || needsReconnect_.load())
+    {
+        return false;
+    }
+
+    ConnectionState previousState = connectionState_.load();
     if (!OpenUsbControlSocket())
     {
         if (logUnavailable)
         {
             LOGI("USB ADB control socket not available; adb reverse may not be configured");
         }
+        connectionState_.store(previousState);
         return false;
     }
 
@@ -1077,17 +1153,18 @@ bool XrApp::TryStartUsbAdbTransport(bool logUnavailable)
         }
         close(controlTcpSocket_);
         controlTcpSocket_ = -1;
+        connectionState_.store(previousState);
         return false;
     }
 
     auto server = *reinterpret_cast<const protocol::ServerAnnounce*>(payload.data());
     ConfigureServerConnection(server, "127.0.0.1", TransportMode::UsbAdbTcp);
-    return serverFound_;
+    return IsConnected();
 }
 
 void XrApp::RetryUsbAdbTransportIfNeeded()
 {
-    if (serverFound_)
+    if (IsConnected() || needsReconnect_.load())
     {
         return;
     }
@@ -1121,7 +1198,8 @@ void XrApp::RetryUsbAdbTransportIfNeeded()
 void XrApp::ConfigureServerConnection(const protocol::ServerAnnounce& server,
                                       const char* serverIp, TransportMode transportMode)
 {
-    if (serverFound_)
+    ConnectionState state = connectionState_.load();
+    if (state == ConnectionState::Connected)
     {
         // Already connected — check if this is just a leftover broadcast from the same server.
         // Race condition: server may send a few more broadcasts before receiving our ClientConnect.
@@ -1142,6 +1220,14 @@ void XrApp::ConfigureServerConnection(const protocol::ServerAnnounce& server,
         needsReconnect_.store(true);
         return;
     }
+    if (state == ConnectionState::Connecting)
+    {
+        return;
+    }
+    if (!connectionState_.compare_exchange_strong(state, ConnectionState::Connecting))
+    {
+        return;
+    }
 
     transportMode_ = transportMode;
     const bool usbAdb = transportMode_ == TransportMode::UsbAdbTcp;
@@ -1157,7 +1243,6 @@ void XrApp::ConfigureServerConnection(const protocol::ServerAnnounce& server,
     videoHeight_ = server.renderHeight;
     strncpy(serverIp_, serverIp, sizeof(serverIp_) - 1);
     serverIp_[sizeof(serverIp_) - 1] = '\0';
-    serverFound_ = true;
     connectionTime_ = std::chrono::steady_clock::now();
 
     // Compute aspect-ratio-correct blit viewport within the Quest swapchain.
@@ -1224,18 +1309,22 @@ void XrApp::ConfigureServerConnection(const protocol::ServerAnnounce& server,
         };
         if (usbAdb)
         {
-            receivingStarted = networkReceiver_->StartReceivingTcp(serverVideoPort_, nalCallback);
+            receivingStarted = networkReceiver_->StartReceivingTcp(
+                serverVideoPort_, nalCallback,
+                [this](const char* reason) { OnConnectionLost(reason); });
         }
         else
         {
-            receivingStarted = networkReceiver_->StartReceiving(serverIp, serverVideoPort_, nalCallback);
+            receivingStarted = networkReceiver_->StartReceiving(
+                serverIp, serverVideoPort_, nalCallback,
+                [this](const char* reason) { OnConnectionLost(reason); });
         }
     }
     if (!receivingStarted)
     {
         LOGE("Failed to start %s video receiver", usbAdb ? "USB ADB TCP" : "WiFi UDP");
-        serverFound_ = false;
         transportMode_ = TransportMode::WifiUdp;
+        connectionState_.store(ConnectionState::Disconnected);
         if (usbAdb && controlTcpSocket_ >= 0)
         {
             close(controlTcpSocket_);
@@ -1273,7 +1362,8 @@ void XrApp::ConfigureServerConnection(const protocol::ServerAnnounce& server,
 
     // NOW send ClientConnect — server will start sending video, and we're already listening
     SendClientConnect(serverIp);
-    if (usbAdb && networkReceiver_)
+    connectionState_.store(ConnectionState::Connected);
+    if (networkReceiver_)
     {
         networkReceiver_->StopDiscovery();
     }
@@ -1471,8 +1561,7 @@ void XrApp::RunFrame()
     {
         needsReconnect_.store(false);
         LOGI("Reconnecting to server...");
-        StopNetworking();
-        serverFound_ = false;
+        ResetConnection("connection lost");
         StartNetworking();
     }
 
@@ -1652,7 +1741,7 @@ void XrApp::RunFrame()
         lastReportedAcquireTimeNs_ = lastFrameAcquireTimeNs_;
     }
 
-    if (serverFound_ && networkReceiver_)
+    if (IsConnected() && networkReceiver_)
     {
         uint32_t droppedFrames = networkReceiver_->GetFramesDropped();
         auto now = std::chrono::steady_clock::now();
@@ -1665,7 +1754,7 @@ void XrApp::RunFrame()
         lastObservedDroppedFrames_ = droppedFrames;
 
         auto sinceVideo = now - lastVideoFrameTime_;
-        if (serverFound_ && hasVideoTexture_ &&
+        if (IsConnected() && hasVideoTexture_ &&
             sinceVideo >= std::chrono::milliseconds(200) &&
             now - lastKeyframeRequestTime_ >= std::chrono::milliseconds(100))
         {
@@ -1862,7 +1951,7 @@ void XrApp::RenderFrame(XrTime predictedDisplayTime)
                 // Stream lost (Godot closed, Mac disconnected, etc.)
                 hasVideoTexture_ = false;
                 hasCurrentRenderPose_ = false;
-                LOGI("Video stream lost — no frames for 2 seconds, resetting to status color");
+                OnConnectionLost("no video frames for 2 seconds");
             }
             else
             {
@@ -1911,7 +2000,7 @@ void XrApp::RenderFrame(XrTime predictedDisplayTime)
         {
             // No video — show status color
             glViewport(0, 0, swapchainWidth_, swapchainHeight_);
-            if (serverFound_)
+            if (HasServerConnection())
             {
                 // Server found, waiting for video stream — dark green
                 glClearColor(0.0f, 0.1f, 0.0f, 1.0f);

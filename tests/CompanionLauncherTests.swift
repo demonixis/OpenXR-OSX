@@ -17,6 +17,8 @@ struct CompanionLauncherTests {
         try testQuestUsbReverseParsing()
         try testQuestUsbAdbCandidatePaths()
         try testServerConfigTransportRoundTrip()
+        try testRuntimeActivityParsing()
+        try testMacWifiParsing()
         print("Companion launcher tests passed")
     }
 
@@ -154,6 +156,41 @@ struct CompanionLauncherTests {
 
         let merged = parsed.merged(into: OpenXRServerConfig.defaultText)
         try expect(merged.contains("transport = \"usb_adb\""), "Expected USB ADB transport serialization")
+    }
+
+    private static func testRuntimeActivityParsing() throws {
+        let status = CompanionRuntimeActivity.parse(Data("""
+        {
+          "state": "streaming",
+          "transport": "usb_adb",
+          "device_type": "quest",
+          "client_name": "Quest",
+          "application_name": "Unity",
+          "process_id": 42,
+          "updated_at_unix_ms": 1800000000000
+        }
+        """.utf8))
+
+        try expect(status?.state == .streaming, "Expected streaming state")
+        try expect(status?.transport == .usbAdb, "Expected USB ADB transport")
+        try expect(status?.deviceType == .quest, "Expected Quest device type")
+        try expect(status?.stateDisplayName == "Streaming (USB)", "Expected USB display state")
+        try expect(status?.deviceDisplayName == "Quest", "Expected Quest display name")
+        try expect(status?.applicationName == "Unity", "Expected application name")
+    }
+
+    private static func testMacWifiParsing() throws {
+        let device = MacWifiBridge.wifiDevice(from: """
+        Hardware Port: Ethernet
+        Device: en3
+
+        Hardware Port: Wi-Fi
+        Device: en0
+        Ethernet Address: aa:bb:cc:dd:ee:ff
+        """)
+        try expect(device == "en0", "Expected WiFi device parsing")
+        try expect(MacWifiBridge.parsePowerOutput("Wi-Fi Power (en0): On") == true, "Expected WiFi on parsing")
+        try expect(MacWifiBridge.parsePowerOutput("Wi-Fi Power (en0): Off") == false, "Expected WiFi off parsing")
     }
 
     private static func makeAppBundle(

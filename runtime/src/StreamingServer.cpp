@@ -2,6 +2,7 @@
 
 #include "StreamingServer.h"
 #include "Config.h"
+#include "RuntimeStatus.h"
 #include "Swapchain.h"
 #include "TrackingReceiver.h"
 #include "VideoEncoder.h"
@@ -117,6 +118,16 @@ void ConfigureTcpSocket(int socket)
 #ifdef SO_NOSIGPIPE
     setsockopt(socket, SOL_SOCKET, SO_NOSIGPIPE, &yes, sizeof(yes));
 #endif
+}
+
+void CloseTcpSocket(int& socket)
+{
+    if (socket >= 0)
+    {
+        shutdown(socket, SHUT_RDWR);
+        close(socket);
+        socket = -1;
+    }
 }
 
 int CreateLoopbackListener(uint16_t port)
@@ -343,6 +354,7 @@ bool StreamingServer::Start(uint32_t renderWidth, uint32_t renderHeight, uint32_
 
     running_.store(true);
     state_.store(State::Broadcasting);
+    RuntimeStatus::SetIdle();
 
     if (usbAdbEnabled_ && !StartUsbTcpListeners())
     {
@@ -383,6 +395,8 @@ void StreamingServer::Stop()
     running_.store(false);
     state_.store(State::Stopped);
     frameReadyCv_.notify_all();
+    RuntimeStatus::SetIdle();
+    SendUsbDisconnectBestEffort();
     StopUsbTcpSockets();
 
     {
@@ -391,6 +405,13 @@ void StreamingServer::Stop()
         packetDispatchState_->clientIp.clear();
         packetDispatchState_->videoSocket = -1;
         packetDispatchState_->videoUsesTcp = false;
+    }
+    {
+        std::lock_guard<std::mutex> lock(clientMutex_);
+        clientIp_.clear();
+        clientName_.clear();
+        clientPort_ = 0;
+        clientUsesUsbAdb_ = false;
     }
 
     if (broadcastSocket_ >= 0)
@@ -553,6 +574,19 @@ bool StreamingServer::StartUsbTcpListeners()
     return true;
 }
 
+void StreamingServer::SendUsbDisconnectBestEffort()
+{
+    int controlSocket = -1;
+    {
+        std::lock_guard<std::mutex> lock(tcpSocketMutex_);
+        controlSocket = tcpControlClientSocket_;
+    }
+    if (controlSocket >= 0)
+    {
+        SendTcpRecord(controlSocket, oxr::protocol::TcpRecordType::Disconnect, nullptr, 0);
+    }
+}
+
 void StreamingServer::StopUsbTcpSockets()
 {
     std::lock_guard<std::mutex> lock(tcpSocketMutex_);
@@ -566,12 +600,7 @@ void StreamingServer::StopUsbTcpSockets()
     };
     for (int* socketPtr : sockets)
     {
-        if (*socketPtr >= 0)
-        {
-            shutdown(*socketPtr, SHUT_RDWR);
-            close(*socketPtr);
-            *socketPtr = -1;
-        }
+        CloseTcpSocket(*socketPtr);
     }
 }
 
@@ -589,7 +618,7 @@ void StreamingServer::TcpControlThread()
             std::lock_guard<std::mutex> lock(tcpSocketMutex_);
             if (tcpControlClientSocket_ >= 0)
             {
-                close(tcpControlClientSocket_);
+                CloseTcpSocket(tcpControlClientSocket_);
             }
             tcpControlClientSocket_ = clientSocket;
         }
@@ -605,7 +634,7 @@ void StreamingServer::TcpControlThread()
                     tcpControlClientSocket_ = -1;
                 }
             }
-            close(clientSocket);
+            CloseTcpSocket(clientSocket);
             continue;
         }
 
@@ -650,7 +679,7 @@ void StreamingServer::TcpControlThread()
         }
         if (shouldClose)
         {
-            close(clientSocket);
+            CloseTcpSocket(clientSocket);
         }
         if (clientUsesUsbAdb_)
         {
@@ -675,7 +704,7 @@ void StreamingServer::TcpVideoThread()
             std::lock_guard<std::mutex> lock(tcpSocketMutex_);
             if (tcpVideoClientSocket_ >= 0)
             {
-                close(tcpVideoClientSocket_);
+                CloseTcpSocket(tcpVideoClientSocket_);
             }
             tcpVideoClientSocket_ = clientSocket;
         }
@@ -707,7 +736,7 @@ void StreamingServer::TcpTrackingThread()
             std::lock_guard<std::mutex> lock(tcpSocketMutex_);
             if (tcpTrackingClientSocket_ >= 0)
             {
-                close(tcpTrackingClientSocket_);
+                CloseTcpSocket(tcpTrackingClientSocket_);
             }
             tcpTrackingClientSocket_ = clientSocket;
         }
@@ -743,7 +772,7 @@ void StreamingServer::TcpTrackingThread()
         }
         if (shouldClose)
         {
-            close(clientSocket);
+            CloseTcpSocket(clientSocket);
         }
         spdlog::info("StreamingServer: USB ADB tracking client disconnected");
     }
@@ -939,13 +968,14 @@ void StreamingServer::HandleClientConnect(const oxr::protocol::ClientConnect& cl
 {
     char ipStr[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &clientAddr.sin_addr, ipStr, sizeof(ipStr));
+    std::string clientName(clientConnect.deviceName,
+        strnlen(clientConnect.deviceName, sizeof(clientConnect.deviceName)));
 
     {
         std::lock_guard<std::mutex> lock(clientMutex_);
         clientIp_ = ipStr;
         clientPort_ = ntohs(clientAddr.sin_port);
-        clientName_ = std::string(clientConnect.deviceName,
-            strnlen(clientConnect.deviceName, sizeof(clientConnect.deviceName)));
+        clientName_ = clientName;
         clientUsesUsbAdb_ = false;
     }
     {
@@ -990,7 +1020,8 @@ void StreamingServer::HandleClientConnect(const oxr::protocol::ClientConnect& cl
                 frameIndex_ = 0;
                 encoderReady = true;
                 spdlog::info("StreamingServer: Client connected via WiFi: {} ({}:{}) refresh={}Hz",
-                              clientName_, clientIp_, clientPort_, negotiatedRefresh);
+                              clientName, clientIp_, clientPort_, negotiatedRefresh);
+                RuntimeStatus::SetStreaming("wifi", clientName);
             }
             else
             {
@@ -1007,6 +1038,7 @@ void StreamingServer::HandleClientConnect(const oxr::protocol::ClientConnect& cl
 
     if (!encoderReady)
     {
+        RuntimeStatus::SetIdle();
         state_.store(State::Broadcasting);
         if (wifiEnabled_ && running_.load())
         {
@@ -1018,12 +1050,13 @@ void StreamingServer::HandleClientConnect(const oxr::protocol::ClientConnect& cl
 
 void StreamingServer::HandleUsbClientConnect(const oxr::protocol::ClientConnect& clientConnect)
 {
+    std::string clientName(clientConnect.deviceName,
+        strnlen(clientConnect.deviceName, sizeof(clientConnect.deviceName)));
     {
         std::lock_guard<std::mutex> lock(clientMutex_);
         clientIp_ = "127.0.0.1";
         clientPort_ = oxr::protocol::CONTROL_PORT;
-        clientName_ = std::string(clientConnect.deviceName,
-            strnlen(clientConnect.deviceName, sizeof(clientConnect.deviceName)));
+        clientName_ = clientName;
         clientUsesUsbAdb_ = true;
     }
     {
@@ -1069,7 +1102,8 @@ void StreamingServer::HandleUsbClientConnect(const oxr::protocol::ClientConnect&
                 frameIndex_ = 0;
                 encoderReady = true;
                 spdlog::info("StreamingServer: Client connected via usb_adb: {} refresh={}Hz",
-                              clientName_, negotiatedRefresh);
+                              clientName, negotiatedRefresh);
+                RuntimeStatus::SetStreaming("usb_adb", clientName);
             }
             else
             {
@@ -1086,6 +1120,7 @@ void StreamingServer::HandleUsbClientConnect(const oxr::protocol::ClientConnect&
 
     if (!encoderReady)
     {
+        RuntimeStatus::SetIdle();
         clientUsesUsbAdb_ = false;
         state_.store(State::Broadcasting);
         if (wifiEnabled_ && running_.load())
@@ -1097,18 +1132,42 @@ void StreamingServer::HandleUsbClientConnect(const oxr::protocol::ClientConnect&
 
 void StreamingServer::HandleClientDisconnect()
 {
+    std::lock_guard<std::mutex> disconnectLock(disconnectMutex_);
+    if (!running_.load())
+    {
+        return;
+    }
+
+    State previousState = state_.exchange(State::Broadcasting);
+    bool hadClient = false;
+    bool wasUsbClient = false;
     {
         std::lock_guard<std::mutex> lock(clientMutex_);
+        hadClient = clientUsesUsbAdb_ || !clientIp_.empty() ||
+                    !clientName_.empty() || clientPort_ != 0;
+        wasUsbClient = clientUsesUsbAdb_;
         clientIp_.clear();
         clientName_.clear();
         clientPort_ = 0;
         clientUsesUsbAdb_ = false;
     }
+    if (previousState != State::Connected && !hadClient)
+    {
+        return;
+    }
+
     {
         std::lock_guard<std::mutex> lock(packetDispatchState_->mutex);
         packetDispatchState_->clientIp.clear();
         packetDispatchState_->videoSocket = videoSocket_;
         packetDispatchState_->videoUsesTcp = false;
+    }
+    if (wasUsbClient)
+    {
+        std::lock_guard<std::mutex> lock(tcpSocketMutex_);
+        CloseTcpSocket(tcpControlClientSocket_);
+        CloseTcpSocket(tcpVideoClientSocket_);
+        CloseTcpSocket(tcpTrackingClientSocket_);
     }
 
     {
@@ -1123,18 +1182,18 @@ void StreamingServer::HandleClientDisconnect()
 
     targetRefreshRateHz_.store(refreshRateHz_);
     UpdatePredictionHorizon();
-    state_.store(State::Broadcasting);
 
-    if (broadcastThread_.joinable())
+    if (previousState == State::Connected && broadcastThread_.joinable())
     {
         broadcastThread_.join();
     }
 
-    if (wifiEnabled_ && running_.load())
+    if (previousState == State::Connected && wifiEnabled_ && running_.load())
     {
         broadcastThread_ = std::thread(&StreamingServer::BroadcastThread, this);
     }
 
+    RuntimeStatus::SetIdle();
     spdlog::info("StreamingServer: Client disconnected, resuming broadcast");
 }
 

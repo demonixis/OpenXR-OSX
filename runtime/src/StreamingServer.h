@@ -130,6 +130,7 @@ private:
     void HandleControlPayload(const uint8_t* data, size_t size);
     void UpdatePredictionHorizon();
     bool StartUsbTcpListeners();
+    void SendUsbDisconnectBestEffort();
     void StopUsbTcpSockets();
 
     std::atomic<State> state_{State::Stopped};
@@ -164,6 +165,7 @@ private:
     int tcpVideoClientSocket_ = -1;
     int tcpTrackingClientSocket_ = -1;
     std::mutex tcpSocketMutex_;
+    std::mutex disconnectMutex_;
     bool wifiEnabled_ = true;
     bool usbAdbEnabled_ = true;
     bool clientUsesUsbAdb_ = false;

@@ -17,6 +17,9 @@ stream connects, and sends head pose, hand joints, and first-pass tracked access
 while the immersive space is open. The macOS SwiftUI companion now targets direct notarized
 distribution so it can scan known apps, install the bundled runtime, launch compatible apps with
 `XR_RUNTIME_JSON`, and capture app logs.
+The companion shows a main-window runtime activity summary from
+`~/Library/Application Support/OpenXR-OSX/runtime_status.json`, including idle/streaming state,
+transport, connected device family, active OpenXR application, and WiFi/USB transport readiness.
 As of March 17, 2026, the pinned non-interactive OpenXR-CTS baseline is fully green locally:
 63 passed, 36 skipped, 0 failed.
 
@@ -46,7 +49,7 @@ Avoid duplicating the same guidance in multiple files. If commands, platform sta
 - The runtime does not link directly against Vulkan. Resolve Vulkan functions through the app-provided loader path.
 - `Session::EndFrame()` must stay non-blocking.
 - The streaming encoder queue is latest-frame-only.
-- Quest USB streaming uses retrying ADB reverse TCP on localhost ports `9944`, `9945`, and `9946`; app-level Android USB permission dialogs are only for `UsbManager`-visible devices/accessories and are not required for ADB reverse streaming.
+- Quest USB streaming uses reconnecting ADB reverse TCP on localhost ports `9944`, `9945`, and `9946`; app-level Android USB permission dialogs are only for `UsbManager`-visible devices/accessories and are not required for ADB reverse streaming.
 - Headset refresh rate is negotiated from the client.
 - Latency reports feed bounded pose prediction.
 - Headset clients must match `VIDEO_FLAG_RENDER_POSE` metadata to the decoded frame before projection submission.

@@ -29,6 +29,7 @@ class NetworkReceiver
 public:
     using OnNalUnitCallback = std::function<void(const uint8_t* data, size_t size,
                                                  int64_t timestampNs, int64_t receiveTimeNs)>;
+    using OnConnectionLostCallback = std::function<void(const char* reason)>;
     // serverIp is the IP address of the broadcasting server (from recvfrom)
     using OnServerFoundCallback = std::function<void(const protocol::ServerAnnounce& server,
                                                       const char* serverIp)>;
@@ -42,8 +43,10 @@ public:
 
     bool StartDiscovery(OnServerFoundCallback callback);
     void StopDiscovery();
-    bool StartReceiving(const char* serverIp, uint16_t videoPort, OnNalUnitCallback callback);
-    bool StartReceivingTcp(uint16_t videoPort, OnNalUnitCallback callback);
+    bool StartReceiving(const char* serverIp, uint16_t videoPort, OnNalUnitCallback callback,
+                        OnConnectionLostCallback connectionLostCallback);
+    bool StartReceivingTcp(uint16_t videoPort, OnNalUnitCallback callback,
+                           OnConnectionLostCallback connectionLostCallback);
 
     // Set the control socket for sending NACKs (owned by XrApp, not NetworkReceiver)
     void SetControlSocket(int socket, const char* serverIp);
@@ -114,6 +117,7 @@ private:
     };
     PendingFrame pendingFrame_;
     OnNalUnitCallback nalCallback_;
+    OnConnectionLostCallback connectionLostCallback_;
 
     // NACK support
     int controlSocket_ = -1;

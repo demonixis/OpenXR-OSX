@@ -114,7 +114,7 @@ The expected lifecycle is:
 2. A client connects and advertises capabilities.
 3. The runtime starts video and tracking exchange.
 4. The client sends latency feedback and keyframe requests while streaming is active.
-5. Either side can disconnect and return to idle.
+5. Either side can disconnect and return to idle. USB TCP shutdown uses a best-effort `Disconnect` record on the control channel before sockets are closed; clients also treat closed video/control sockets as a connection loss and resume discovery/retry.
 
 ## Compatibility
 

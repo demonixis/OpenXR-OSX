@@ -39,6 +39,7 @@ USB diagnostics use Android's official `UsbManager` host/accessory intents and f
 The Quest client:
 
 - tries USB ADB reverse TCP first, then falls back to local-network UDP discovery when USB is unavailable
+- returns to discovery/retry automatically when the runtime or OpenXR app session stops
 - connects and advertises codec and refresh-rate preferences
 - receives encoded video frames and matches render-pose metadata to each decoded frame before projection submission
 - sends head, controller, and optional hand-tracking data back to the runtime
@@ -57,7 +58,7 @@ adb -s <serial> reverse tcp:9945 tcp:9945
 adb -s <serial> reverse tcp:9946 tcp:9946
 ```
 
-With `streaming.transport = "auto"`, the Quest app connects to `127.0.0.1:9946` first. If the ADB reverse control channel answers, the client receives `ServerAnnounce`, opens TCP video and tracking channels, and sends `ClientConnect`. If USB is unavailable, it falls back to WiFi UDP discovery while continuing to retry USB periodically so launch order is not critical. With `streaming.transport = "usb_adb"`, the runtime disables WiFi discovery fallback.
+With `streaming.transport = "auto"`, the Quest app connects to `127.0.0.1:9946` first. If the ADB reverse control channel answers, the client receives `ServerAnnounce`, opens TCP video and tracking channels, and sends `ClientConnect`. If USB is unavailable, it falls back to WiFi UDP discovery while continuing to retry USB periodically so launch order is not critical. When the runtime closes the USB control/video sockets or video stalls after an app exits, the Quest client resets connection state and returns to the same retry loop without requiring the Android app to be relaunched. With `streaming.transport = "usb_adb"`, the runtime disables WiFi discovery fallback.
 
 USB TCP sends full H.265 NAL records and render-pose records, so UDP FEC and NACK recovery are disabled on this path.
 

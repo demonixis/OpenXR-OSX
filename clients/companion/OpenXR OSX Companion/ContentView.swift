@@ -21,6 +21,10 @@ struct ContentView: View {
                 .padding(.top, 18)
                 .padding(.bottom, 10)
 
+            runtimeActivitySummary
+                .padding(.horizontal, 20)
+                .padding(.bottom, 8)
+
             TabView {
                 appsTab
                     .tabItem {
@@ -75,6 +79,91 @@ struct ContentView: View {
                     .multilineTextAlignment(.trailing)
             }
         }
+    }
+
+    private var runtimeActivitySummary: some View {
+        HStack(spacing: 18) {
+            RuntimeStatusItem(
+                title: "State",
+                value: model.runtimeActivity.stateDisplayName,
+                systemImage: model.runtimeActivity.state == .streaming ? "dot.radiowaves.left.and.right" : "pause.circle",
+                color: model.runtimeActivity.state == .streaming ? .green : .secondary
+            )
+            Divider()
+                .frame(height: 30)
+            RuntimeStatusItem(
+                title: "Device",
+                value: model.runtimeActivity.deviceDisplayName,
+                systemImage: "visionpro",
+                color: model.runtimeActivity.state == .streaming ? .accentColor : .secondary
+            )
+            Divider()
+                .frame(height: 30)
+            RuntimeStatusItem(
+                title: "Profile App",
+                value: model.currentProfileAppDisplayName,
+                systemImage: "app.badge",
+                color: model.currentProfileAppDisplayName == "None" ? .secondary : .accentColor
+            )
+            Divider()
+                .frame(height: 30)
+            transportHealthControl
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.secondary.opacity(0.18))
+        )
+    }
+
+    private var transportHealthControl: some View {
+        let readiness = model.mainTransportReadiness
+        return HStack(spacing: 8) {
+            Picker("Transport", selection: Binding(
+                get: { model.mainTransportSelection },
+                set: { selection in
+                    guard selection != model.mainTransportSelection else {
+                        return
+                    }
+                    Task { @MainActor in
+                        await Task.yield()
+                        model.setMainTransportSelection(selection)
+                    }
+                }
+            )) {
+                ForEach(CompanionPrimaryTransport.allCases) { transport in
+                    Text(transport.displayName).tag(transport)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.segmented)
+            .frame(width: 120)
+
+            StatusPill(
+                title: readiness.isReady ? "Ready" : "Action needed",
+                color: readiness.isReady ? .green : .red
+            )
+
+            Text(readiness.message)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: 280, alignment: .leading)
+
+            if readiness.canConfigureUsb {
+                Button {
+                    model.configureQuestUsbReverse()
+                } label: {
+                    Label("Configure", systemImage: "cable.connector")
+                }
+            }
+        }
+        .frame(minWidth: 360, alignment: .leading)
     }
 
     private var appsTab: some View {
@@ -541,6 +630,34 @@ private struct StatusPill: View {
             .background(color.opacity(0.14))
             .foregroundStyle(color)
             .clipShape(Capsule())
+    }
+}
+
+private struct RuntimeStatusItem: View {
+    let title: String
+    let value: String
+    let systemImage: String
+    let color: Color
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: systemImage)
+                .font(.title3)
+                .foregroundStyle(color)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(value)
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+        }
+        .frame(minWidth: 150, alignment: .leading)
     }
 }
 

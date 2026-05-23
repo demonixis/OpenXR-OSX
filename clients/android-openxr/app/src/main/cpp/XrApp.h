@@ -56,6 +56,14 @@ private:
         UsbAdbTcp,
     };
 
+    enum class ConnectionState
+    {
+        Disconnected,
+        Discovering,
+        Connecting,
+        Connected,
+    };
+
     bool CreateInstance(struct android_app* app);
     bool InitEgl();
     bool CreateSession();
@@ -68,6 +76,14 @@ private:
 
     void StartNetworking();
     void StopNetworking();
+    void ResetConnection(const char* reason);
+    void OnConnectionLost(const char* reason);
+    bool IsConnected() const { return connectionState_.load() == ConnectionState::Connected; }
+    bool HasServerConnection() const
+    {
+        ConnectionState state = connectionState_.load();
+        return state == ConnectionState::Connecting || state == ConnectionState::Connected;
+    }
 
     void OnServerFound(const protocol::ServerAnnounce& server, const char* serverIp);
     void ConfigureServerConnection(const protocol::ServerAnnounce& server, const char* serverIp,
@@ -163,7 +179,7 @@ private:
     int controlTcpSocket_ = -1;
     TransportMode transportMode_ = TransportMode::WifiUdp;
 
-    bool serverFound_ = false;
+    std::atomic<ConnectionState> connectionState_{ConnectionState::Disconnected};
     std::atomic<bool> needsReconnect_{false};
     std::chrono::steady_clock::time_point lastUsbAdbRetryTime_;
     uint32_t usbAdbRetryAttempts_ = 0;

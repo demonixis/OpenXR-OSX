@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 import AppKit
+import Darwin
 import Foundation
 import UniformTypeIdentifiers
 
@@ -40,6 +41,7 @@ struct CompanionPaths {
     static let terminalScriptsDirectory = (appSupportDirectory as NSString).appendingPathComponent("TerminalLaunchers")
     static let activeRuntimeDirectory = NSString(string: "~/.config/openxr/1").expandingTildeInPath
     static let activeRuntimePath = (activeRuntimeDirectory as NSString).appendingPathComponent("active_runtime.json")
+    static let runtimeStatusPath = (appSupportDirectory as NSString).appendingPathComponent("runtime_status.json")
     static let launchAgentsDirectory = NSString(string: "~/Library/LaunchAgents").expandingTildeInPath
     static let launchAgentPath = (launchAgentsDirectory as NSString).appendingPathComponent("com.openxr_osx.runtime_env.plist")
 
@@ -51,6 +53,268 @@ struct CompanionPaths {
 struct RuntimeRegistrationStatus {
     var activeRuntimeExists = false
     var activeRuntimeTarget: String?
+}
+
+enum RuntimeActivityState: String {
+    case idle
+    case streaming
+}
+
+enum RuntimeActivityTransport: String {
+    case wifi
+    case usbAdb = "usb_adb"
+}
+
+enum RuntimeDeviceType: String {
+    case quest
+    case pico
+    case simulator
+    case visionPro = "vision_pro"
+    case unknown
+
+    var displayName: String {
+        switch self {
+        case .quest:
+            return "Quest"
+        case .pico:
+            return "Pico"
+        case .simulator:
+            return "Simulator"
+        case .visionPro:
+            return "Vision Pro"
+        case .unknown:
+            return "Unknown"
+        }
+    }
+}
+
+struct CompanionRuntimeActivity: Equatable {
+    var state: RuntimeActivityState = .idle
+    var transport: RuntimeActivityTransport?
+    var deviceType: RuntimeDeviceType?
+    var clientName: String?
+    var applicationName: String?
+    var processID: Int?
+    var updatedAtUnixMilliseconds: Int64?
+
+    static let idle = CompanionRuntimeActivity()
+
+    var stateDisplayName: String {
+        switch (state, transport) {
+        case (.streaming, .wifi):
+            return "Streaming (WiFi)"
+        case (.streaming, .usbAdb):
+            return "Streaming (USB)"
+        case (.streaming, _):
+            return "Streaming"
+        case (.idle, _):
+            return "Idle"
+        }
+    }
+
+    var deviceDisplayName: String {
+        guard state == .streaming else {
+            return "None"
+        }
+        return deviceType?.displayName ?? "Unknown"
+    }
+
+    static func read(from path: String = CompanionPaths.runtimeStatusPath) -> CompanionRuntimeActivity {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let status = parse(data, validateProcess: true) else {
+            return .idle
+        }
+        return status
+    }
+
+    static func parse(_ data: Data, validateProcess: Bool = false) -> CompanionRuntimeActivity? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+
+        let processID = intValue(object["process_id"])
+        if validateProcess, let processID, !isProcessRunning(processID) {
+            return .idle
+        }
+
+        let state = stringValue(object["state"])
+            .flatMap(RuntimeActivityState.init(rawValue:)) ?? .idle
+        let transport = stringValue(object["transport"])
+            .flatMap(RuntimeActivityTransport.init(rawValue:))
+        let deviceType = stringValue(object["device_type"])
+            .flatMap(RuntimeDeviceType.init(rawValue:))
+
+        return CompanionRuntimeActivity(
+            state: state,
+            transport: transport,
+            deviceType: deviceType,
+            clientName: nonEmptyStringValue(object["client_name"]),
+            applicationName: nonEmptyStringValue(object["application_name"]),
+            processID: processID,
+            updatedAtUnixMilliseconds: int64Value(object["updated_at_unix_ms"])
+        )
+    }
+
+    private static func stringValue(_ value: Any?) -> String? {
+        value as? String
+    }
+
+    private static func nonEmptyStringValue(_ value: Any?) -> String? {
+        guard let text = stringValue(value), !text.isEmpty else {
+            return nil
+        }
+        return text
+    }
+
+    private static func intValue(_ value: Any?) -> Int? {
+        if let value = value as? Int {
+            return value
+        }
+        if let number = value as? NSNumber {
+            return number.intValue
+        }
+        return nil
+    }
+
+    private static func int64Value(_ value: Any?) -> Int64? {
+        if let value = value as? Int64 {
+            return value
+        }
+        if let value = value as? Int {
+            return Int64(value)
+        }
+        if let number = value as? NSNumber {
+            return number.int64Value
+        }
+        return nil
+    }
+
+    private static func isProcessRunning(_ processID: Int) -> Bool {
+        guard processID > 0 else {
+            return false
+        }
+        if kill(pid_t(processID), 0) == 0 {
+            return true
+        }
+        return errno == EPERM
+    }
+}
+
+enum CompanionPrimaryTransport: String, CaseIterable, Identifiable {
+    case wifi
+    case usbAdb
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .wifi:
+            return "WiFi"
+        case .usbAdb:
+            return "USB"
+        }
+    }
+
+    var configTransport: StreamingTransportSetting {
+        switch self {
+        case .wifi:
+            return .wifi
+        case .usbAdb:
+            return .usbAdb
+        }
+    }
+}
+
+struct MacWifiStatus: Equatable {
+    var interfaceName: String?
+    var isPoweredOn: Bool?
+    var message: String
+
+    static let unknown = MacWifiStatus(
+        interfaceName: nil,
+        isPoweredOn: nil,
+        message: "WiFi status unavailable."
+    )
+}
+
+enum MacWifiBridge {
+    static func status() -> MacWifiStatus {
+        do {
+            let hardwareOutput = try Shell.run("/usr/sbin/networksetup", ["-listallhardwareports"])
+            guard let device = wifiDevice(from: hardwareOutput) else {
+                return MacWifiStatus(
+                    interfaceName: nil,
+                    isPoweredOn: nil,
+                    message: "No WiFi interface found."
+                )
+            }
+
+            let powerOutput = try Shell.run("/usr/sbin/networksetup", ["-getairportpower", device])
+            guard let poweredOn = parsePowerOutput(powerOutput) else {
+                return MacWifiStatus(
+                    interfaceName: device,
+                    isPoweredOn: nil,
+                    message: "WiFi status unavailable for \(device)."
+                )
+            }
+
+            return MacWifiStatus(
+                interfaceName: device,
+                isPoweredOn: poweredOn,
+                message: poweredOn ? "WiFi is on on \(device)." : "WiFi is off on \(device)."
+            )
+        } catch {
+            return MacWifiStatus(
+                interfaceName: nil,
+                isPoweredOn: nil,
+                message: "WiFi status unavailable: \(error.localizedDescription)"
+            )
+        }
+    }
+
+    static func wifiDevice(from output: String) -> String? {
+        var currentPort: String?
+        for rawLine in output.split(whereSeparator: { $0.isNewline }) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("Hardware Port:") {
+                currentPort = String(line.dropFirst("Hardware Port:".count))
+                    .trimmingCharacters(in: .whitespaces)
+            } else if line.hasPrefix("Device:"),
+                      let currentPort,
+                      isWifiPortName(currentPort) {
+                return String(line.dropFirst("Device:".count))
+                    .trimmingCharacters(in: .whitespaces)
+            }
+        }
+        return nil
+    }
+
+    static func parsePowerOutput(_ output: String) -> Bool? {
+        let parts = output.split(separator: ":", maxSplits: 1)
+        guard let value = parts.last?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else {
+            return nil
+        }
+        if value == "on" {
+            return true
+        }
+        if value == "off" {
+            return false
+        }
+        return nil
+    }
+
+    private static func isWifiPortName(_ name: String) -> Bool {
+        let normalized = name.lowercased()
+        return normalized.contains("wi-fi") ||
+               normalized.contains("wifi") ||
+               normalized.contains("airport")
+    }
+}
+
+struct CompanionTransportReadiness: Equatable {
+    var isReady: Bool
+    var message: String
+    var canConfigureUsb: Bool = false
 }
 
 struct QuestUsbDevice: Identifiable, Equatable {

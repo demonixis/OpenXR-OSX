@@ -156,7 +156,8 @@ void NetworkReceiver::DiscoveryThread(OnServerFoundCallback callback)
 }
 
 bool NetworkReceiver::StartReceiving(const char* serverIp, uint16_t videoPort,
-                                     OnNalUnitCallback callback)
+                                     OnNalUnitCallback callback,
+                                     OnConnectionLostCallback connectionLostCallback)
 {
     (void)serverIp;
 
@@ -185,13 +186,15 @@ bool NetworkReceiver::StartReceiving(const char* serverIp, uint16_t videoPort,
     }
 
     nalCallback_ = std::move(callback);
+    connectionLostCallback_ = std::move(connectionLostCallback);
     receiving_.store(true);
     receiveThread_ = std::thread(&NetworkReceiver::ReceiveThread, this, nalCallback_);
     LOGI("Video receiver started on port %d", videoPort);
     return true;
 }
 
-bool NetworkReceiver::StartReceivingTcp(uint16_t videoPort, OnNalUnitCallback callback)
+bool NetworkReceiver::StartReceivingTcp(uint16_t videoPort, OnNalUnitCallback callback,
+                                        OnConnectionLostCallback connectionLostCallback)
 {
     videoSocket_ = socket(AF_INET, SOCK_STREAM, 0);
     if (videoSocket_ < 0)
@@ -215,6 +218,7 @@ bool NetworkReceiver::StartReceivingTcp(uint16_t videoPort, OnNalUnitCallback ca
     }
 
     nalCallback_ = std::move(callback);
+    connectionLostCallback_ = std::move(connectionLostCallback);
     receiving_.store(true);
     receiveThread_ = std::thread(&NetworkReceiver::ReceiveTcpThread, this, nalCallback_);
     LOGI("USB TCP video receiver connected to localhost:%d", videoPort);
@@ -326,9 +330,13 @@ void NetworkReceiver::ReceiveTcpThread(OnNalUnitCallback callback)
         }
     }
 
-    receiving_.store(false);
+    bool unexpectedDisconnect = receiving_.exchange(false);
     LOGI("USB TCP video receive thread ended (packets=%u records=%u)",
          packetsReceived_.load(), framesDelivered_.load());
+    if (unexpectedDisconnect && connectionLostCallback_)
+    {
+        connectionLostCallback_("USB TCP video socket closed");
+    }
 }
 
 void NetworkReceiver::ReassembleFrame(const protocol::VideoPacketHeader& header,
@@ -745,6 +753,7 @@ void NetworkReceiver::Stop()
         latestRenderPose_ = {};
         renderPoses_.clear();
     }
+    connectionLostCallback_ = nullptr;
 
     LOGI("Network receiver stopped");
 }

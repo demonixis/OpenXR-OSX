@@ -21,6 +21,10 @@ final class CompanionAppModel: ObservableObject, @unchecked Sendable {
     @Published var questUsbDevices: [QuestUsbDevice] = []
     @Published var selectedQuestUsbSerial: String?
     @Published var questUsbStatus = "USB ADB transport is not configured."
+    @Published var selectedQuestUsbReversePorts: Set<Int> = []
+    @Published var wifiStatus = MacWifiStatus.unknown
+    @Published var runtimeActivity = CompanionRuntimeActivity.idle
+    @Published private(set) var activeLaunchedAppID: String?
     @Published var statusMessage = ""
     @Published var errorMessage: String?
 
@@ -35,6 +39,8 @@ final class CompanionAppModel: ObservableObject, @unchecked Sendable {
     private var launchPipes: [String: [Pipe]] = [:]
     private var currentConfigText = OpenXRServerConfig.defaultText
     private var lastKnownConfigModificationDate: Date?
+    private var lastTransportHealthRefreshDate = Date.distantPast
+    private var mainTransportOverride: CompanionPrimaryTransport?
     private var pollTask: Task<Void, Never>?
 
     init() {
@@ -113,12 +119,85 @@ final class CompanionAppModel: ObservableObject, @unchecked Sendable {
         runtimeInstallStatus.bundledRuntimeExists
     }
 
+    var currentProfileAppDisplayName: String {
+        if let applicationName = runtimeActivity.applicationName {
+            return applicationName
+        }
+        if let activeLaunchedAppID,
+           let app = launcherApps.first(where: { $0.id == activeLaunchedAppID }) {
+            return app.name
+        }
+        return "None"
+    }
+
+    var mainTransportSelection: CompanionPrimaryTransport {
+        if let mainTransportOverride {
+            return mainTransportOverride
+        }
+        if runtimeActivity.state == .streaming {
+            switch runtimeActivity.transport {
+            case .wifi:
+                return .wifi
+            case .usbAdb:
+                return .usbAdb
+            case nil:
+                break
+            }
+        }
+        switch serverConfig.transport {
+        case .wifi:
+            return .wifi
+        case .usbAdb:
+            return .usbAdb
+        case .auto:
+            return .usbAdb
+        }
+    }
+
+    var mainTransportReadiness: CompanionTransportReadiness {
+        switch mainTransportSelection {
+        case .wifi:
+            return CompanionTransportReadiness(
+                isReady: wifiStatus.isPoweredOn == true,
+                message: wifiStatus.message
+            )
+        case .usbAdb:
+            guard let selectedQuestUsbSerial,
+                  questUsbDevices.contains(where: { $0.serial == selectedQuestUsbSerial && $0.isUsable }) else {
+                return CompanionTransportReadiness(
+                    isReady: false,
+                    message: "No authorized Quest device visible over adb."
+                )
+            }
+
+            let expectedPorts = Set(QuestUsbBridge.reversePorts)
+            if expectedPorts.isSubset(of: selectedQuestUsbReversePorts) {
+                let ports = expectedPorts.sorted().map(String.init).joined(separator: ", ")
+                return CompanionTransportReadiness(
+                    isReady: true,
+                    message: "USB reverse ready for \(selectedQuestUsbSerial) on \(ports)."
+                )
+            }
+
+            let missingPorts = expectedPorts.subtracting(selectedQuestUsbReversePorts)
+                .sorted()
+                .map(String.init)
+                .joined(separator: ", ")
+            return CompanionTransportReadiness(
+                isReady: false,
+                message: "USB reverse missing port\(missingPorts.contains(",") ? "s" : "") \(missingPorts).",
+                canConfigureUsb: true
+            )
+        }
+    }
+
     func loadAll() {
         loadConfigFromDisk()
         refreshRuntimeStatus()
         refreshRuntimeInstallStatus()
+        refreshRuntimeActivity()
         reloadLauncherApps()
-        refreshQuestUsbDevices()
+        refreshTransportHealth(force: true)
     }
 
     func loadConfigFromDisk() {
@@ -167,6 +246,16 @@ final class CompanionAppModel: ObservableObject, @unchecked Sendable {
         }
     }
 
+    func refreshTransportHealth(force: Bool = false) {
+        let now = Date()
+        guard force || now.timeIntervalSince(lastTransportHealthRefreshDate) >= 5 else {
+            return
+        }
+        lastTransportHealthRefreshDate = now
+        wifiStatus = MacWifiBridge.status()
+        refreshQuestUsbDevices()
+    }
+
     func refreshQuestUsbDevices() {
         do {
             questUsbDevices = try QuestUsbBridge.devices()
@@ -178,6 +267,12 @@ final class CompanionAppModel: ObservableObject, @unchecked Sendable {
                 selectedQuestUsbSerial = usableDevices.first?.serial
             }
 
+            selectedQuestUsbReversePorts = []
+            if let selectedQuestUsbSerial {
+                selectedQuestUsbReversePorts =
+                    (try? QuestUsbBridge.reverseMappings(for: selectedQuestUsbSerial)) ?? []
+            }
+
             if questUsbDevices.isEmpty {
                 questUsbStatus = "No Quest device reported by adb."
             } else if usableDevices.isEmpty {
@@ -186,15 +281,14 @@ final class CompanionAppModel: ObservableObject, @unchecked Sendable {
                 questUsbStatus = "Multiple Quest devices found; select one before configuring USB."
             } else {
                 questUsbStatus = "Ready to configure USB ADB reverse for \(usableDevices.count) authorized device\(usableDevices.count == 1 ? "" : "s")."
-                if let selectedQuestUsbSerial,
-                   let configuredPorts = try? QuestUsbBridge.reverseMappings(for: selectedQuestUsbSerial),
-                   !configuredPorts.isEmpty {
-                    questUsbStatus += " Active reverse ports: \(configuredPorts.sorted().map(String.init).joined(separator: ", "))."
+                if !selectedQuestUsbReversePorts.isEmpty {
+                    questUsbStatus += " Active reverse ports: \(selectedQuestUsbReversePorts.sorted().map(String.init).joined(separator: ", "))."
                 }
             }
         } catch {
             questUsbDevices = []
             selectedQuestUsbSerial = nil
+            selectedQuestUsbReversePorts = []
             questUsbStatus = "adb is unavailable or failed: \(error.localizedDescription)"
         }
     }
@@ -208,14 +302,20 @@ final class CompanionAppModel: ObservableObject, @unchecked Sendable {
 
         do {
             let configuredPorts = try QuestUsbBridge.configureReverse(for: serial)
-            serverConfig.transport = .auto
-            saveStructuredConfig()
+            selectedQuestUsbReversePorts = configuredPorts
             questUsbStatus = "Verified adb reverse for \(serial) on ports \(configuredPorts.sorted().map(String.init).joined(separator: ", "))."
             statusMessage = "Configured Quest USB ADB transport."
         } catch {
             questUsbStatus = "Failed to configure adb reverse: \(error.localizedDescription)"
             errorMessage = questUsbStatus
         }
+    }
+
+    func setMainTransportSelection(_ selection: CompanionPrimaryTransport) {
+        mainTransportOverride = selection
+        serverConfig.transport = selection.configTransport
+        saveStructuredConfig()
+        refreshTransportHealth(force: true)
     }
 
     func resetToDisk() {
@@ -248,6 +348,10 @@ final class CompanionAppModel: ObservableObject, @unchecked Sendable {
 
     func refreshRuntimeInstallStatus() {
         runtimeInstallStatus = runtimeInstaller.status()
+    }
+
+    func refreshRuntimeActivity() {
+        runtimeActivity = CompanionRuntimeActivity.read()
     }
 
     func installBundledRuntimeAndRegister() {
@@ -424,6 +528,7 @@ final class CompanionAppModel: ObservableObject, @unchecked Sendable {
                 throw error
             }
 
+            activeLaunchedAppID = appID
             statusMessage = "Launched \(app.name)."
         } catch {
             errorMessage = "Failed to launch \(app.name): \(error.localizedDescription)"
@@ -576,6 +681,9 @@ final class CompanionAppModel: ObservableObject, @unchecked Sendable {
         }
         launchPipes[appID] = nil
         launchedProcesses[appID] = nil
+        if activeLaunchedAppID == appID {
+            activeLaunchedAppID = launchedProcesses.first(where: { $0.value.isRunning })?.key
+        }
     }
 
     private func destinationOfSymbolicLink(atPath path: String) -> String? {
@@ -604,6 +712,8 @@ final class CompanionAppModel: ObservableObject, @unchecked Sendable {
                 try? await Task.sleep(for: .seconds(1))
                 guard !Task.isCancelled else { break }
                 self.refreshRuntimeStatus()
+                self.refreshRuntimeActivity()
+                self.refreshTransportHealth()
                 self.pollConfigChangesIfNeeded()
             }
         }

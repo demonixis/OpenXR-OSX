@@ -20,6 +20,7 @@
 #include "InputManager.h"
 #include "HandTracker.h"
 #include "Config.h"
+#include "RuntimeStatus.h"
 #include "VulkanDispatch.h"
 
 #include <spdlog/spdlog.h>
@@ -569,6 +570,7 @@ static XRAPI_ATTR XrResult XRAPI_CALL OxrCreateInstance(
     }
 
     gInstance = std::make_unique<Instance>(createInfo->applicationInfo.apiVersion, enabledExtensions);
+    RuntimeStatus::SetApplicationName(createInfo->applicationInfo.applicationName);
     *instance = reinterpret_cast<XrInstance>(gInstance->GetHandle());
     return XR_SUCCESS;
 }
@@ -585,6 +587,7 @@ static XRAPI_ATTR XrResult XRAPI_CALL OxrDestroyInstance(XrInstance instance)
         return XR_ERROR_HANDLE_INVALID;
     }
     CleanupRuntimeState();
+    RuntimeStatus::ClearApplicationName();
     return XR_SUCCESS;
 }
 

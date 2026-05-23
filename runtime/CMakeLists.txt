@@ -4,6 +4,7 @@ add_library(openxr_osx SHARED
     src/Config.cpp
     src/EntryPoint.cpp
     src/Runtime.cpp
+    src/RuntimeStatus.cpp
     src/Instance.cpp
     src/Session.cpp
     src/Swapchain.mm

@@ -77,6 +77,7 @@ void Config::DetectDylibDir()
     configFilePath = appSupportDir + "/openxr_osx.toml";
     logFilePath = appSupportDir + "/openxr_osx.log";
     questLogFilePath = appSupportDir + "/openxr_osx_quest.log";
+    runtimeStatusPath = appSupportDir + "/runtime_status.json";
 }
 
 // ─── Config file parsing ─────────────────────────────────────────────────────

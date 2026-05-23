@@ -10,6 +10,10 @@ The native macOS companion app lives in `clients/companion/` and provides three 
   the selected OpenXR runtime manifest for the current user.
 - `Streaming`: edits `~/Library/Application Support/OpenXR-OSX/openxr_osx.toml`.
 
+The main window also shows the current runtime activity: idle or streaming, the active transport
+when streaming, the connected device family, the OpenXR application name reported by the runtime,
+and a WiFi/USB transport readiness control.
+
 The companion now targets direct notarized distribution instead of App Store/TestFlight sandboxing.
 The full launcher and installer need access to `/Applications`, app executables, Terminal launch
 scripts, `~/.config/openxr/1/active_runtime.json`, `~/Library/LaunchAgents`, and `launchctl`.
@@ -73,6 +77,32 @@ panel to select an app and inspect captured stdout/stderr.
 `Terminal` creates a `.command` script under
 `~/Library/Application Support/OpenXR-OSX/TerminalLaunchers/` and opens it with Terminal for
 debugging.
+
+## Runtime Activity Status
+
+The runtime writes a compact status file for the companion:
+
+```text
+~/Library/Application Support/OpenXR-OSX/runtime_status.json
+```
+
+The file is updated when an OpenXR app creates or destroys an instance, when the streaming server
+starts or stops, and when a headset client connects or disconnects. The companion polls it once per
+second and shows:
+
+- state: `Idle`, `Streaming (WiFi)`, or `Streaming (USB)`
+- device: `Quest`, `Pico`, `Simulator`, `Vision Pro`, or `Unknown`
+- profile app: the OpenXR application name from `XrInstanceCreateInfo`, with the companion-launched
+  app as a fallback before the runtime has written status
+
+The status file includes the runtime process id. If that process is no longer alive, the companion
+treats the status as idle so stale streaming state does not survive a crashed app.
+
+The same header area includes a WiFi/USB selector. Selecting WiFi writes `streaming.transport = "wifi"`
+and shows whether the Mac WiFi interface is powered on. Selecting USB writes
+`streaming.transport = "usb_adb"` and checks the selected ADB device for reverse mappings on
+`9944`, `9945`, and `9946`. If any USB reverse mapping is missing, the header shows an action
+state and exposes a `Configure` button; once all ports are mapped, the button is hidden.
 
 ## Runtime Installation And Registration
 

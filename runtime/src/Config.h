@@ -48,6 +48,7 @@ public:
     std::string configFilePath;     // Resolved config file path
     std::string logFilePath;        // Full path to openxr_osx.log
     std::string questLogFilePath;   // Full path to openxr_osx_quest.log
+    std::string runtimeStatusPath;  // Full path to runtime_status.json
 
     void Shutdown();
 
