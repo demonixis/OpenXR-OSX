@@ -39,7 +39,7 @@ jobs:
   runtime-heavy:
     needs: detect-runtime-sensitive-changes
     if: github.event_name == 'workflow_dispatch' || needs.detect-runtime-sensitive-changes.outputs.runtime_sensitive == 'true'
-    runs-on: macos-latest
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
       - uses: jdx/mise-action@v3
