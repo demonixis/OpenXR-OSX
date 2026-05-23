@@ -30,7 +30,6 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
         with:
-          build-root-directory: clients/android-openxr
           # TEMP: allow this branch to populate the cache so we can measure
           # hot-cache speedup before merge. Revert before merging.
           cache-read-only: false
