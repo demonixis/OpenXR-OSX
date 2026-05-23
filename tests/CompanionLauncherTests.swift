@@ -19,6 +19,7 @@ struct CompanionLauncherTests {
         try testServerConfigTransportRoundTrip()
         try testRuntimeActivityParsing()
         try testMacWifiParsing()
+        try testAdbStatusDisplay()
         print("Companion launcher tests passed")
     }
 
@@ -191,6 +192,18 @@ struct CompanionLauncherTests {
         try expect(device == "en0", "Expected WiFi device parsing")
         try expect(MacWifiBridge.parsePowerOutput("Wi-Fi Power (en0): On") == true, "Expected WiFi on parsing")
         try expect(MacWifiBridge.parsePowerOutput("Wi-Fi Power (en0): Off") == false, "Expected WiFi off parsing")
+    }
+
+    private static func testAdbStatusDisplay() throws {
+        try expect(!CompanionAdbStatus.missing.isAvailable, "Expected missing ADB to be unavailable")
+        try expect(
+            CompanionAdbStatus.available(at: "/opt/homebrew/bin/adb").isAvailable,
+            "Expected detected ADB to be available"
+        )
+        try expect(
+            CompanionAdbInstallGuidance.message.contains("brew install adb-enhanced"),
+            "Expected Homebrew install guidance"
+        )
     }
 
     private static func makeAppBundle(

@@ -317,6 +317,43 @@ struct CompanionTransportReadiness: Equatable {
     var canConfigureUsb: Bool = false
 }
 
+struct CompanionAdbStatus: Equatable {
+    var executablePath: String?
+    var message: String
+
+    var isAvailable: Bool {
+        executablePath != nil
+    }
+
+    static let unknown = CompanionAdbStatus(
+        executablePath: nil,
+        message: "ADB status unavailable."
+    )
+
+    static let missing = CompanionAdbStatus(
+        executablePath: nil,
+        message: "ADB is required for USB mode."
+    )
+
+    static func available(at path: String) -> CompanionAdbStatus {
+        CompanionAdbStatus(
+            executablePath: path,
+            message: "ADB found at \(path)."
+        )
+    }
+}
+
+enum CompanionAdbInstallGuidance {
+    static let title = "ADB is required for USB mode"
+    static let message = """
+    USB streaming uses Android Debug Bridge (adb) to configure the reverse TCP tunnel. Install adb-enhanced, then make sure adb is available in PATH.
+
+    With Homebrew, run:
+    brew install adb-enhanced
+    """
+    static let homebrewURL = URL(string: "https://formulae.brew.sh/formula/adb-enhanced#default")!
+}
+
 struct QuestUsbDevice: Identifiable, Equatable {
     let serial: String
     let state: String

@@ -57,6 +57,23 @@ struct ContentView: View {
         } message: {
             Text(model.errorMessage ?? "")
         }
+        .alert(CompanionAdbInstallGuidance.title, isPresented: Binding(
+            get: { model.isAdbInstallGuidancePresented },
+            set: { newValue in
+                if !newValue {
+                    model.dismissAdbInstallGuidance()
+                }
+            })
+        ) {
+            Button("Open Homebrew") {
+                model.openAdbInstallHelp()
+            }
+            Button("OK", role: .cancel) {
+                model.dismissAdbInstallGuidance()
+            }
+        } message: {
+            Text(CompanionAdbInstallGuidance.message)
+        }
     }
 
     private var header: some View {

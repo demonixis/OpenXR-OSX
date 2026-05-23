@@ -23,6 +23,8 @@ final class CompanionAppModel: ObservableObject, @unchecked Sendable {
     @Published var questUsbStatus = "USB ADB transport is not configured."
     @Published var selectedQuestUsbReversePorts: Set<Int> = []
     @Published var wifiStatus = MacWifiStatus.unknown
+    @Published var adbStatus = CompanionAdbStatus.unknown
+    @Published var isAdbInstallGuidancePresented = false
     @Published var runtimeActivity = CompanionRuntimeActivity.idle
     @Published private(set) var activeLaunchedAppID: String?
     @Published var statusMessage = ""
@@ -162,6 +164,12 @@ final class CompanionAppModel: ObservableObject, @unchecked Sendable {
                 message: wifiStatus.message
             )
         case .usbAdb:
+            guard adbStatus.isAvailable else {
+                return CompanionTransportReadiness(
+                    isReady: false,
+                    message: adbStatus.message
+                )
+            }
             guard let selectedQuestUsbSerial,
                   questUsbDevices.contains(where: { $0.serial == selectedQuestUsbSerial && $0.isUsable }) else {
                 return CompanionTransportReadiness(
@@ -257,6 +265,14 @@ final class CompanionAppModel: ObservableObject, @unchecked Sendable {
     }
 
     func refreshQuestUsbDevices() {
+        guard refreshAdbStatus() else {
+            questUsbDevices = []
+            selectedQuestUsbSerial = nil
+            selectedQuestUsbReversePorts = []
+            questUsbStatus = "ADB is unavailable. Install adb-enhanced before using USB mode."
+            return
+        }
+
         do {
             questUsbDevices = try QuestUsbBridge.devices()
             let usableDevices = questUsbDevices.filter(\.isUsable)
@@ -293,7 +309,23 @@ final class CompanionAppModel: ObservableObject, @unchecked Sendable {
         }
     }
 
+    @discardableResult
+    private func refreshAdbStatus() -> Bool {
+        guard let adbPath = QuestUsbBridge.resolveAdbExecutablePath() else {
+            adbStatus = .missing
+            return false
+        }
+        adbStatus = .available(at: adbPath)
+        return true
+    }
+
     func configureQuestUsbReverse() {
+        guard refreshAdbStatus() else {
+            questUsbStatus = "ADB is unavailable. Install adb-enhanced before configuring USB."
+            presentAdbInstallGuidance()
+            return
+        }
+
         guard let serial = selectedQuestUsbSerial,
               questUsbDevices.contains(where: { $0.serial == serial && $0.isUsable }) else {
             questUsbStatus = "Select an authorized Quest device before configuring USB."
@@ -312,10 +344,29 @@ final class CompanionAppModel: ObservableObject, @unchecked Sendable {
     }
 
     func setMainTransportSelection(_ selection: CompanionPrimaryTransport) {
+        if selection == .usbAdb, !refreshAdbStatus() {
+            questUsbStatus = "ADB is unavailable. USB mode needs adb-enhanced."
+            presentAdbInstallGuidance()
+            return
+        }
+
         mainTransportOverride = selection
         serverConfig.transport = selection.configTransport
         saveStructuredConfig()
         refreshTransportHealth(force: true)
+    }
+
+    func presentAdbInstallGuidance() {
+        isAdbInstallGuidancePresented = true
+    }
+
+    func dismissAdbInstallGuidance() {
+        isAdbInstallGuidancePresented = false
+    }
+
+    func openAdbInstallHelp() {
+        NSWorkspace.shared.open(CompanionAdbInstallGuidance.homebrewURL)
+        dismissAdbInstallGuidance()
     }
 
     func resetToDisk() {

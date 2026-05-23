@@ -100,9 +100,12 @@ treats the status as idle so stale streaming state does not survive a crashed ap
 
 The same header area includes a WiFi/USB selector. Selecting WiFi writes `streaming.transport = "wifi"`
 and shows whether the Mac WiFi interface is powered on. Selecting USB writes
-`streaming.transport = "usb_adb"` and checks the selected ADB device for reverse mappings on
-`9944`, `9945`, and `9946`. If any USB reverse mapping is missing, the header shows an action
-state and exposes a `Configure` button; once all ports are mapped, the button is hidden.
+`streaming.transport = "usb_adb"` only when `adb` is available. If `adb` is missing, the companion
+keeps the current transport and shows install guidance for `adb-enhanced`, including the Homebrew
+command `brew install adb-enhanced`. When `adb` is present, USB mode checks the
+selected ADB device for reverse mappings on `9944`, `9945`, and `9946`. If any USB reverse mapping
+is missing, the header shows an action state and exposes a `Configure` button; once all ports are
+mapped, the button is hidden.
 
 ## Runtime Installation And Registration
 
