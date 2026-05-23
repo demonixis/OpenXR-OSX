@@ -27,6 +27,20 @@ Useful flags:
 - `--skip-android` when you are not validating Android locally
 - `--skip-visionos` when the local Xcode install does not include visionOS simulator support
 
+### Why Commit Lint Is Repo-Owned Python
+
+`scripts/ci/commitlint.py` is intentionally a small repo-owned Python script instead of a Node-based commitlint toolchain.
+
+Reasons:
+
+- easy to read and audit in one file
+- no extra package manager or lockfile just for commit message validation
+- no external runtime dependency beyond Python, which is already available in the build environments we use
+- fast local and CI startup, with no package install step before linting commits
+- exact alignment with this repository's Conventional Commit subset instead of inheriting a broader default policy
+
+If the repository's commit subject rules change, update `scripts/ci/commitlint.py` and keep this explanation aligned with the new policy.
+
 For the path-triggered runtime lane, run:
 
 ```bash
