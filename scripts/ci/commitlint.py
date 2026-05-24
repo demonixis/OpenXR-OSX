@@ -33,6 +33,8 @@ COMMIT_HEADER_RE = re.compile(
 def normalize_header(header: str) -> str:
     if header.startswith("Merge "):
         return ""
+    if header.startswith("Revert "):
+        return ""
     if header.startswith("fixup! "):
         return header[len("fixup! ") :]
     if header.startswith("squash! "):
