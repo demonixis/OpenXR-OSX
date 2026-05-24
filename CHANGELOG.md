@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-The format is based on Conventional Commits and this file is maintained by `release-please`.
+The format is based on Conventional Commits and this file is maintained manually by the maintainer when a release is cut.
 
 ## [1.0.0] - 2026-05-15
 

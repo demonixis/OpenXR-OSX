@@ -49,16 +49,6 @@ scripts/ci/verify-macos-runtime-heavy.sh
 
 That script reproduces the heavy macOS runtime CI lane, including host bootstrap for Metal Toolchain and Vulkan prerequisites unless `OPENXR_OSX_SKIP_HOST_BOOTSTRAP=1` is already appropriate for the current machine.
 
-### Release Packaging
-
-To reproduce release artifact assembly locally, run:
-
-```bash
-scripts/ci/package-release-assets.sh
-```
-
-This packages the runtime zip, Quest APK, macOS Companion app, Simulator app, and `SHA256SUMS.txt` under `dist/release/`.
-
 ### visionOS Platform Support
 
 `scripts/ci/build-visionos.sh` probes for installed visionOS platform support before building.

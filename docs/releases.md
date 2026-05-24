@@ -26,24 +26,9 @@ adb install path/to/openxr-osx-quest.apk
 
 Use a source build when you need branch-only Android changes, custom instrumentation, or a local debug build.
 
-## Release Automation
+## Release Process
 
-This repository uses Conventional Commits plus `release-please` to manage version bumps, `CHANGELOG.md`, and GitHub Releases.
-
-The intended flow is:
-
-1. merge pull requests with Conventional Commit subjects
-2. let `release-please` open or update the release PR on `main`
-3. merge the release PR to create the next semver tag
-4. let the release workflow package and upload release assets from checked-in `scripts/ci/` entry points
-
-Local release packaging reproduction stays script-first:
-
-```bash
-scripts/ci/package-release-assets.sh
-```
-
-That command assembles the runtime zip, Quest APK, macOS Companion app, Simulator app, and `SHA256SUMS.txt` under `dist/release/`.
+Releases are cut manually by the maintainer. There is no CI publishing path: tags, `CHANGELOG.md` entries, and uploaded GitHub Release assets are produced by hand from a local build. Conventional Commit subjects keep the history readable when assembling release notes, but no automation consumes them.
 
 ## When To Build From Source
 
