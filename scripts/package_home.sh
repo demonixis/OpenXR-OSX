@@ -15,7 +15,7 @@ APP_PATH="${APP_PRODUCTS_DIR}/OXRSys Home.app"
 RUNTIME_SOURCE_DIR="${BUILD_DIR}/runtime"
 RUNTIME_RESOURCE_DIR="${APP_PATH}/Contents/Resources/OXRSysRuntime"
 
-cmake -B "${BUILD_DIR}" -G Ninja -DCMAKE_BUILD_TYPE=Debug
+cmake -S "${REPO_ROOT}" -B "${BUILD_DIR}" -G Ninja -DCMAKE_BUILD_TYPE=Debug
 cmake --build "${BUILD_DIR}" --target oxrsys_runtime
 
 xcodebuild \
