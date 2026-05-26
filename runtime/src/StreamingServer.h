@@ -149,7 +149,7 @@ private:
     std::atomic<float> clientCompositorLatencyMs_{0.0f};
 
     // Adaptive bitrate state
-    uint32_t configMaxBitrateMbps_ = 50;
+    std::atomic<uint32_t> configMaxBitrateMbps_{50};
     std::atomic<uint32_t> currentBitrateMbps_{50};
     int64_t lastBitrateIncreaseTimeNs_ = 0;
     uint32_t lastKeyframeRequestCountForAbr_ = 0;

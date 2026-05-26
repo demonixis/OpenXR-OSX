@@ -2,13 +2,16 @@
 
 ## Scope
 
-The native macOS companion app lives in `clients/companion/` and provides three tabs:
+The native macOS companion app lives in `clients/companion/` and provides three default tabs:
 
 - `Apps`: scans for compatible apps, manages manually added apps, launches them with
   `XR_RUNTIME_JSON`, and captures stdout/stderr logs.
-- `Runtime`: installs a bundled runtime into the user's Application Support directory and registers
-  the selected OpenXR runtime manifest for the current user.
+- `Settings`: installs a bundled runtime, registers the selected OpenXR runtime manifest for the
+  current user, and exposes Companion preferences.
 - `Streaming`: edits `~/Library/Application Support/OpenXR-OSX/openxr_osx.toml`.
+
+When `Developer Mode` is enabled from the `Settings` tab, the main window also shows a `Developer`
+tab. Its first tool opens the integrated OpenXR Simulator in a single Companion-owned window.
 
 The main window also shows the current runtime activity: idle or streaming, the active transport
 when streaming, the connected device family, the OpenXR application name reported by the runtime,
@@ -29,6 +32,9 @@ xcodebuild -project "clients/companion/OpenXR OSX Companion.xcodeproj" \
 
 The Debug build disables Xcode code signing so the command works without a personal development
 team. It does not embed a runtime by default.
+
+The companion links the shared `OpenXRSimulator` Swift package so the Developer tab can host the
+simulator without launching a separate app bundle.
 
 ## Direct Distribution Package
 
@@ -78,6 +84,21 @@ panel to select an app and inspect captured stdout/stderr.
 `~/Library/Application Support/OpenXR-OSX/TerminalLaunchers/` and opens it with Terminal for
 debugging.
 
+## Developer Mode
+
+`Developer Mode` is stored in `UserDefaults` and is off by default. Enable it from the Companion
+`Settings` tab to reveal the `Developer` tab.
+
+The `Open Simulator` button opens the shared simulator view in a single SwiftUI window with a
+default size of `1280x720`. Repeated clicks focus or reuse that window. Closing the window disconnects
+the simulator client through the same cleanup path as the standalone simulator app. Turning Developer
+Mode off hides the tab but does not force-close an already-open simulator window.
+
+The `Runtime Stats` section shows compact live streaming telemetry when the runtime is actively
+streaming. It keeps the last 60 one-second samples in memory and draws lightweight SwiftUI `Canvas`
+graphs for pipeline latency and encode latency. The section is read-only and uses metrics already
+computed by the runtime streaming path.
+
 ## Runtime Activity Status
 
 The runtime writes a compact status file for the companion:
@@ -97,6 +118,23 @@ second and shows:
 
 The status file includes the runtime process id. If that process is no longer alive, the companion
 treats the status as idle so stale streaming state does not survive a crashed app.
+
+When streaming, the runtime may also include a `streaming_stats` object. It is updated at most once
+per second from the existing encode telemetry callback and is omitted when the runtime returns to
+idle. The fields are:
+
+- `sample_unix_ms`
+- `refresh_rate_hz`, `current_bitrate_mbps`, `max_bitrate_mbps`
+- `render_width`, `render_height`, `encoded_width`, `encoded_height`
+- `latency_ms.server_pipeline`, `latency_ms.client_pipeline`,
+  `latency_ms.client_receive_to_submit`, `latency_ms.client_decode`,
+  `latency_ms.client_compositor`, `latency_ms.prediction_horizon`
+- `encode_ms.queue_avg`, `encode_ms.queue_p95`, `encode_ms.gpu_avg`, `encode_ms.gpu_p95`,
+  `encode_ms.submit_avg`, `encode_ms.submit_p95`, `encode_ms.callback_avg`,
+  `encode_ms.callback_p95`, `encode_ms.total_avg`, `encode_ms.total_p95`
+- `counters.encoded_frames_total`, `counters.encoder_dropped_frames_total`,
+  `counters.replaced_frames_delta`, `counters.keyframe_requests_delta`,
+  `counters.pending_depth_max`
 
 The same header area includes a WiFi/USB selector. Selecting WiFi writes `streaming.transport = "wifi"`
 and shows whether the Mac WiFi interface is powered on. Selecting USB writes

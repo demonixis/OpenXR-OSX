@@ -13,8 +13,8 @@ This document is the entry point for build workflows. Installation steps live in
   direct-distribution app.
 - For Xcode UI work on multiple Swift clients, open `clients/OpenXR Clients.xcworkspace`
   instead of opening the individual `.xcodeproj` files in separate windows. The simulator and
-  visionOS targets share the local `OpenXRStreaming` Swift package, and one workspace avoids Xcode
-  loading that package from multiple project containers.
+  visionOS targets share local Swift packages, and one workspace avoids Xcode loading them from
+  multiple project containers.
 - Use the platform pages for client-specific build and deployment details:
   - [Quest](platforms/quest.md)
   - [iOS Viewer](platforms/ios-viewer.md)
@@ -60,7 +60,8 @@ The helper creates `~/.config/openxr/1/active_runtime.json` and installs a per-u
 ### Native macOS Companion App
 
 The SwiftUI companion app provides a launcher for compatible apps, a runtime installer, the server
-TOML editor, and the per-user runtime registration workflow:
+TOML editor, the per-user runtime registration workflow, and an optional Developer tab that opens
+the integrated simulator:
 
 ```bash
 xcodebuild -project "clients/companion/OpenXR OSX Companion.xcodeproj" \
@@ -85,7 +86,14 @@ installation, and signing workflow.
 
 ### Unified Viewer App
 
-The unified viewer target under `clients/simulator/` now covers both the local simulator workflow and the iOS stereo viewer workflow:
+The shared simulator package can be checked directly:
+
+```bash
+swift build --package-path clients/common/OpenXRSimulator
+```
+
+The unified viewer target under `clients/simulator/` wraps that package for both the standalone
+macOS simulator workflow and the iOS stereo viewer workflow:
 
 ```bash
 xcodebuild -project "clients/simulator/OpenXR Simulator.xcodeproj" \

@@ -517,6 +517,5 @@ void Swapchain::ReleaseTextureSlice(void* textureSlice)
 bool Swapchain::HasReleasedImage() const
 {
     std::scoped_lock lock(stateMutex_);
-    return hasReleasedImage_ && acquiredImageOrder_.empty() &&
-           imageStates_[lastReleasedIndex_] == ImageState::Available;
+    return hasReleasedImage_ && imageStates_[lastReleasedIndex_] == ImageState::Available;
 }

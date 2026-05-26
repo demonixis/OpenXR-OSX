@@ -88,6 +88,137 @@ enum RuntimeDeviceType: String {
     }
 }
 
+struct CompanionRuntimeStreamingStats: Equatable {
+    struct Latency: Equatable {
+        var serverPipelineMs: Double = 0
+        var clientPipelineMs: Double = 0
+        var clientReceiveToSubmitMs: Double = 0
+        var clientDecodeMs: Double = 0
+        var clientCompositorMs: Double = 0
+        var predictionHorizonMs: Double = 0
+    }
+
+    struct Encode: Equatable {
+        var queueAverageMs: Double = 0
+        var queueP95Ms: Double = 0
+        var gpuAverageMs: Double = 0
+        var gpuP95Ms: Double = 0
+        var submitAverageMs: Double = 0
+        var submitP95Ms: Double = 0
+        var callbackAverageMs: Double = 0
+        var callbackP95Ms: Double = 0
+        var totalAverageMs: Double = 0
+        var totalP95Ms: Double = 0
+    }
+
+    struct Counters: Equatable {
+        var encodedFramesTotal: Int = 0
+        var encoderDroppedFramesTotal: Int = 0
+        var replacedFramesDelta: Int = 0
+        var keyframeRequestsDelta: Int = 0
+        var pendingDepthMax: Int = 0
+    }
+
+    var sampleUnixMilliseconds: Int64 = 0
+    var refreshRateHz: Int = 0
+    var currentBitrateMbps: Int = 0
+    var maxBitrateMbps: Int = 0
+    var renderWidth: Int = 0
+    var renderHeight: Int = 0
+    var encodedWidth: Int = 0
+    var encodedHeight: Int = 0
+    var latency = Latency()
+    var encode = Encode()
+    var counters = Counters()
+
+    static func parse(_ value: Any?) -> CompanionRuntimeStreamingStats? {
+        guard let object = value as? [String: Any] else {
+            return nil
+        }
+
+        let latencyObject = object["latency_ms"] as? [String: Any] ?? [:]
+        let encodeObject = object["encode_ms"] as? [String: Any] ?? [:]
+        let countersObject = object["counters"] as? [String: Any] ?? [:]
+
+        return CompanionRuntimeStreamingStats(
+            sampleUnixMilliseconds: int64Value(object["sample_unix_ms"]) ?? 0,
+            refreshRateHz: intValue(object["refresh_rate_hz"]) ?? 0,
+            currentBitrateMbps: intValue(object["current_bitrate_mbps"]) ?? 0,
+            maxBitrateMbps: intValue(object["max_bitrate_mbps"]) ?? 0,
+            renderWidth: intValue(object["render_width"]) ?? 0,
+            renderHeight: intValue(object["render_height"]) ?? 0,
+            encodedWidth: intValue(object["encoded_width"]) ?? 0,
+            encodedHeight: intValue(object["encoded_height"]) ?? 0,
+            latency: Latency(
+                serverPipelineMs: doubleValue(latencyObject["server_pipeline"]),
+                clientPipelineMs: doubleValue(latencyObject["client_pipeline"]),
+                clientReceiveToSubmitMs: doubleValue(latencyObject["client_receive_to_submit"]),
+                clientDecodeMs: doubleValue(latencyObject["client_decode"]),
+                clientCompositorMs: doubleValue(latencyObject["client_compositor"]),
+                predictionHorizonMs: doubleValue(latencyObject["prediction_horizon"])
+            ),
+            encode: Encode(
+                queueAverageMs: doubleValue(encodeObject["queue_avg"]),
+                queueP95Ms: doubleValue(encodeObject["queue_p95"]),
+                gpuAverageMs: doubleValue(encodeObject["gpu_avg"]),
+                gpuP95Ms: doubleValue(encodeObject["gpu_p95"]),
+                submitAverageMs: doubleValue(encodeObject["submit_avg"]),
+                submitP95Ms: doubleValue(encodeObject["submit_p95"]),
+                callbackAverageMs: doubleValue(encodeObject["callback_avg"]),
+                callbackP95Ms: doubleValue(encodeObject["callback_p95"]),
+                totalAverageMs: doubleValue(encodeObject["total_avg"]),
+                totalP95Ms: doubleValue(encodeObject["total_p95"])
+            ),
+            counters: Counters(
+                encodedFramesTotal: intValue(countersObject["encoded_frames_total"]) ?? 0,
+                encoderDroppedFramesTotal: intValue(countersObject["encoder_dropped_frames_total"]) ?? 0,
+                replacedFramesDelta: intValue(countersObject["replaced_frames_delta"]) ?? 0,
+                keyframeRequestsDelta: intValue(countersObject["keyframe_requests_delta"]) ?? 0,
+                pendingDepthMax: intValue(countersObject["pending_depth_max"]) ?? 0
+            )
+        )
+    }
+
+    private static func intValue(_ value: Any?) -> Int? {
+        if let value = value as? Int {
+            return value
+        }
+        if let number = value as? NSNumber {
+            return number.intValue
+        }
+        return nil
+    }
+
+    private static func int64Value(_ value: Any?) -> Int64? {
+        if let value = value as? Int64 {
+            return value
+        }
+        if let value = value as? Int {
+            return Int64(value)
+        }
+        if let number = value as? NSNumber {
+            return number.int64Value
+        }
+        return nil
+    }
+
+    private static func doubleValue(_ value: Any?) -> Double {
+        if let value = value as? Double {
+            return value
+        }
+        if let value = value as? Float {
+            return Double(value)
+        }
+        if let value = value as? Int {
+            return Double(value)
+        }
+        if let number = value as? NSNumber {
+            return number.doubleValue
+        }
+        return 0
+    }
+}
+
 struct CompanionRuntimeActivity: Equatable {
     var state: RuntimeActivityState = .idle
     var transport: RuntimeActivityTransport?
@@ -96,6 +227,7 @@ struct CompanionRuntimeActivity: Equatable {
     var applicationName: String?
     var processID: Int?
     var updatedAtUnixMilliseconds: Int64?
+    var streamingStats: CompanionRuntimeStreamingStats?
 
     static let idle = CompanionRuntimeActivity()
 
@@ -151,7 +283,9 @@ struct CompanionRuntimeActivity: Equatable {
             clientName: nonEmptyStringValue(object["client_name"]),
             applicationName: nonEmptyStringValue(object["application_name"]),
             processID: processID,
-            updatedAtUnixMilliseconds: int64Value(object["updated_at_unix_ms"])
+            updatedAtUnixMilliseconds: int64Value(object["updated_at_unix_ms"]),
+            streamingStats: state == .streaming ?
+                CompanionRuntimeStreamingStats.parse(object["streaming_stats"]) : nil
         )
     }
 

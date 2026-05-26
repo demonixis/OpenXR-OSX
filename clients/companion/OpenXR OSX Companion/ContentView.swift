@@ -6,6 +6,8 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @ObservedObject var model: CompanionAppModel
+    @ObservedObject var preferences: CompanionPreferences
+    @Environment(\.openWindow) private var openWindow
 
     private var selectedLogApp: LauncherApp? {
         guard let selectedLogAppID = model.selectedLogAppID else {
@@ -30,14 +32,20 @@ struct ContentView: View {
                     .tabItem {
                         Label("Apps", systemImage: "square.grid.2x2")
                     }
-                runtimeTab
+                settingsTab
                     .tabItem {
-                        Label("Runtime", systemImage: "shippingbox")
+                        Label("Settings", systemImage: "gearshape")
                     }
                 streamingTab
                     .tabItem {
                         Label("Streaming", systemImage: "antenna.radiowaves.left.and.right")
                     }
+                if preferences.developerModeEnabled {
+                    developerTab
+                        .tabItem {
+                            Label("Developer", systemImage: "hammer")
+                        }
+                }
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 20)
@@ -314,13 +322,21 @@ struct ContentView: View {
         .padding(.top, 2)
     }
 
-    private var runtimeTab: some View {
+    private var settingsTab: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                developerSettingsSection
                 runtimeInstallSection
                 runtimeRegistrationSection
             }
             .padding(.top, 14)
+        }
+    }
+
+    private var developerSettingsSection: some View {
+        GroupBox("Developer") {
+            Toggle("Developer Mode", isOn: $preferences.developerModeEnabled)
+                .padding(.top, 8)
         }
     }
 
@@ -546,6 +562,166 @@ struct ContentView: View {
             .padding(.top, 14)
         }
     }
+
+    private var developerTab: some View {
+        ScrollView {
+            GroupBox("Simulator") {
+                HStack(spacing: 12) {
+                    Image(systemName: "display")
+                        .font(.title2)
+                        .foregroundStyle(Color.accentColor)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("OpenXR Simulator")
+                            .font(.headline)
+                        Text("Local streaming client")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button {
+                        openWindow(id: CompanionWindowID.simulator)
+                    } label: {
+                        Label("Open Simulator", systemImage: "play.rectangle")
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                .padding(.top, 8)
+            }
+            .padding(.top, 14)
+
+            runtimeStatsSection
+                .padding(.top, 14)
+        }
+    }
+
+    private var runtimeStatsSection: some View {
+        GroupBox("Runtime Stats") {
+            if let latest = model.latestRuntimeStats {
+                VStack(alignment: .leading, spacing: 14) {
+                    LazyVGrid(
+                        columns: Array(repeating: GridItem(.flexible(minimum: 128), spacing: 10), count: 4),
+                        alignment: .leading,
+                        spacing: 10
+                    ) {
+                        RuntimeStatsMetric(
+                            title: "Refresh",
+                            value: latest.refreshRateHz > 0 ? "\(latest.refreshRateHz) Hz" : "Unknown",
+                            subtitle: "Display target",
+                            systemImage: "speedometer",
+                            color: .accentColor
+                        )
+                        RuntimeStatsMetric(
+                            title: "Bitrate",
+                            value: "\(latest.currentBitrateMbps) / \(latest.maxBitrateMbps) Mbps",
+                            subtitle: "Current / max",
+                            systemImage: "gauge.with.dots.needle.67percent",
+                            color: .green
+                        )
+                        RuntimeStatsMetric(
+                            title: "Render",
+                            value: dimensions(width: latest.renderWidth, height: latest.renderHeight),
+                            subtitle: "Stereo source",
+                            systemImage: "rectangle.3.group",
+                            color: .blue
+                        )
+                        RuntimeStatsMetric(
+                            title: "Encoded",
+                            value: dimensions(width: latest.encodedWidth, height: latest.encodedHeight),
+                            subtitle: "H.265 stream",
+                            systemImage: "rectangle.compress.vertical",
+                            color: .purple
+                        )
+                        RuntimeStatsMetric(
+                            title: "Server",
+                            value: formatMilliseconds(latest.latency.serverPipelineMs),
+                            subtitle: "Pipeline",
+                            systemImage: "desktopcomputer",
+                            color: .orange
+                        )
+                        RuntimeStatsMetric(
+                            title: "Client",
+                            value: formatMilliseconds(latest.latency.clientPipelineMs),
+                            subtitle: "Pipeline",
+                            systemImage: "visionpro",
+                            color: .teal
+                        )
+                        RuntimeStatsMetric(
+                            title: "Horizon",
+                            value: formatMilliseconds(latest.latency.predictionHorizonMs),
+                            subtitle: "Prediction",
+                            systemImage: "scope",
+                            color: .indigo
+                        )
+                        RuntimeStatsMetric(
+                            title: "Drops",
+                            value: "\(latest.counters.encoderDroppedFramesTotal)",
+                            subtitle: "Encoder total",
+                            systemImage: latest.counters.encoderDroppedFramesTotal > 0 ?
+                                "exclamationmark.triangle" : "checkmark.circle",
+                            color: latest.counters.encoderDroppedFramesTotal > 0 ? .red : .green
+                        )
+                    }
+
+                    HStack(alignment: .top, spacing: 12) {
+                        RuntimeStatsChart(
+                            title: "Pipeline Latency",
+                            unit: "ms",
+                            samples: model.runtimeStatsHistory,
+                            series: [
+                                RuntimeStatsSeries(name: "Server", color: .orange) {
+                                    $0.latency.serverPipelineMs
+                                },
+                                RuntimeStatsSeries(name: "Client", color: .teal) {
+                                    $0.latency.clientPipelineMs
+                                },
+                                RuntimeStatsSeries(name: "Horizon", color: .indigo) {
+                                    $0.latency.predictionHorizonMs
+                                },
+                            ]
+                        )
+                        RuntimeStatsChart(
+                            title: "Encode Latency",
+                            unit: "ms",
+                            samples: model.runtimeStatsHistory,
+                            series: [
+                                RuntimeStatsSeries(name: "Total p95", color: .red) {
+                                    $0.encode.totalP95Ms
+                                },
+                                RuntimeStatsSeries(name: "Queue p95", color: .blue) {
+                                    $0.encode.queueP95Ms
+                                },
+                            ]
+                        )
+                    }
+                }
+                .padding(.top, 8)
+            } else {
+                HStack(spacing: 8) {
+                    Image(systemName: model.runtimeActivity.state == .streaming ? "clock" : "pause.circle")
+                        .foregroundStyle(.secondary)
+                    Text(model.runtimeActivity.state == .streaming ?
+                         "Waiting for the first telemetry sample." : "Runtime is idle.")
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 8)
+            }
+        }
+    }
+
+    private func dimensions(width: Int, height: Int) -> String {
+        guard width > 0 && height > 0 else {
+            return "Unknown"
+        }
+        return "\(width) x \(height)"
+    }
+
+    private func formatMilliseconds(_ value: Double) -> String {
+        if value >= 100 {
+            return String(format: "%.0f ms", value)
+        }
+        return String(format: "%.1f ms", value)
+    }
 }
 
 private struct LauncherAppCard: View {
@@ -678,6 +854,164 @@ private struct RuntimeStatusItem: View {
     }
 }
 
+private struct RuntimeStatsMetric: View {
+    let title: String
+    let value: String
+    let subtitle: String
+    let systemImage: String
+    let color: Color
+
+    var body: some View {
+        HStack(spacing: 9) {
+            Image(systemName: systemImage)
+                .font(.title3)
+                .foregroundStyle(color)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(value)
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Text(subtitle)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, minHeight: 70, alignment: .leading)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.secondary.opacity(0.16))
+        )
+    }
+}
+
+private struct RuntimeStatsSeries {
+    let name: String
+    let color: Color
+    let value: (CompanionRuntimeStreamingStats) -> Double
+}
+
+private struct RuntimeStatsChart: View {
+    let title: String
+    let unit: String
+    let samples: [CompanionRuntimeStreamingStats]
+    let series: [RuntimeStatsSeries]
+
+    private var maximumValue: Double {
+        let values = samples.flatMap { sample in
+            series.map { max(0, $0.value(sample)) }
+        }
+        return max(values.max() ?? 1, 1)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(title)
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                Spacer()
+                Text(String(format: "%.1f", maximumValue) + " \(unit)")
+                    .font(.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+
+            Canvas { context, size in
+                let maxValue = maximumValue * 1.1
+                let plotRect = CGRect(
+                    x: 0,
+                    y: 6,
+                    width: max(size.width, 1),
+                    height: max(size.height - 12, 1)
+                )
+
+                for tick in 0...2 {
+                    let y = plotRect.minY + plotRect.height * CGFloat(tick) / 2.0
+                    var gridPath = Path()
+                    gridPath.move(to: CGPoint(x: plotRect.minX, y: y))
+                    gridPath.addLine(to: CGPoint(x: plotRect.maxX, y: y))
+                    context.stroke(gridPath, with: .color(.secondary.opacity(0.16)), lineWidth: 1)
+                }
+
+                guard !samples.isEmpty else {
+                    return
+                }
+
+                for item in series {
+                    var path = Path()
+                    for (index, sample) in samples.enumerated() {
+                        let x: CGFloat
+                        if samples.count == 1 {
+                            x = plotRect.midX
+                        } else {
+                            x = plotRect.minX +
+                                plotRect.width * CGFloat(index) / CGFloat(samples.count - 1)
+                        }
+                        let value = max(0, item.value(sample))
+                        let normalized = min(value / maxValue, 1)
+                        let y = plotRect.maxY - plotRect.height * CGFloat(normalized)
+                        let point = CGPoint(x: x, y: y)
+                        if index == 0 {
+                            path.move(to: point)
+                        } else {
+                            path.addLine(to: point)
+                        }
+                    }
+
+                    context.stroke(path, with: .color(item.color), lineWidth: 2)
+
+                    if samples.count == 1, let sample = samples.first {
+                        let value = max(0, item.value(sample))
+                        let normalized = min(value / maxValue, 1)
+                        let point = CGPoint(
+                            x: plotRect.midX,
+                            y: plotRect.maxY - plotRect.height * CGFloat(normalized)
+                        )
+                        context.fill(
+                            Path(ellipseIn: CGRect(x: point.x - 2, y: point.y - 2, width: 4, height: 4)),
+                            with: .color(item.color)
+                        )
+                    }
+                }
+            }
+            .frame(height: 118)
+
+            HStack(spacing: 12) {
+                ForEach(Array(series.enumerated()), id: \.offset) { _, item in
+                    HStack(spacing: 5) {
+                        RoundedRectangle(cornerRadius: 1)
+                            .fill(item.color)
+                            .frame(width: 14, height: 3)
+                        Text(item.name)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.secondary.opacity(0.16))
+        )
+    }
+}
+
 private struct LabeledSlider<Value: BinaryFloatingPoint>: View where Value.Stride: BinaryFloatingPoint {
     let title: String
     @Binding var value: Value
@@ -698,5 +1032,5 @@ private struct LabeledSlider<Value: BinaryFloatingPoint>: View where Value.Strid
 }
 
 #Preview {
-    ContentView(model: CompanionAppModel())
+    ContentView(model: CompanionAppModel(), preferences: CompanionPreferences())
 }

@@ -5,6 +5,12 @@ import Combine
 import Foundation
 import UniformTypeIdentifiers
 
+private struct RuntimeStatsStreamIdentity: Equatable {
+    let processID: Int?
+    let transport: RuntimeActivityTransport?
+    let clientName: String?
+}
+
 @MainActor
 final class CompanionAppModel: ObservableObject, @unchecked Sendable {
     @Published var runtimeManifestPath: String
@@ -26,6 +32,7 @@ final class CompanionAppModel: ObservableObject, @unchecked Sendable {
     @Published var adbStatus = CompanionAdbStatus.unknown
     @Published var isAdbInstallGuidancePresented = false
     @Published var runtimeActivity = CompanionRuntimeActivity.idle
+    @Published private(set) var runtimeStatsHistory: [CompanionRuntimeStreamingStats] = []
     @Published private(set) var activeLaunchedAppID: String?
     @Published var statusMessage = ""
     @Published var errorMessage: String?
@@ -44,6 +51,8 @@ final class CompanionAppModel: ObservableObject, @unchecked Sendable {
     private var lastTransportHealthRefreshDate = Date.distantPast
     private var mainTransportOverride: CompanionPrimaryTransport?
     private var pollTask: Task<Void, Never>?
+    private var runtimeStatsStreamIdentity: RuntimeStatsStreamIdentity?
+    private let maxRuntimeStatsSamples = 60
 
     init() {
         runtimeManifestPath = defaults.string(forKey: runtimeManifestPathKey) ?? SourceDefaults.defaultRuntimeManifestPath()
@@ -197,6 +206,10 @@ final class CompanionAppModel: ObservableObject, @unchecked Sendable {
                 canConfigureUsb: true
             )
         }
+    }
+
+    var latestRuntimeStats: CompanionRuntimeStreamingStats? {
+        runtimeStatsHistory.last
     }
 
     func loadAll() {
@@ -402,7 +415,46 @@ final class CompanionAppModel: ObservableObject, @unchecked Sendable {
     }
 
     func refreshRuntimeActivity() {
-        runtimeActivity = CompanionRuntimeActivity.read()
+        let activity = CompanionRuntimeActivity.read()
+        updateRuntimeStatsHistory(with: activity)
+        runtimeActivity = activity
+    }
+
+    private func updateRuntimeStatsHistory(with activity: CompanionRuntimeActivity) {
+        guard activity.state == .streaming else {
+            resetRuntimeStatsHistory()
+            return
+        }
+
+        let identity = RuntimeStatsStreamIdentity(
+            processID: activity.processID,
+            transport: activity.transport,
+            clientName: activity.clientName
+        )
+        if runtimeStatsStreamIdentity != identity {
+            runtimeStatsStreamIdentity = identity
+            runtimeStatsHistory.removeAll(keepingCapacity: true)
+        }
+
+        guard let stats = activity.streamingStats else {
+            return
+        }
+
+        if let lastIndex = runtimeStatsHistory.indices.last,
+           runtimeStatsHistory[lastIndex].sampleUnixMilliseconds == stats.sampleUnixMilliseconds {
+            runtimeStatsHistory[lastIndex] = stats
+            return
+        }
+
+        runtimeStatsHistory.append(stats)
+        if runtimeStatsHistory.count > maxRuntimeStatsSamples {
+            runtimeStatsHistory.removeFirst(runtimeStatsHistory.count - maxRuntimeStatsSamples)
+        }
+    }
+
+    private func resetRuntimeStatsHistory() {
+        runtimeStatsStreamIdentity = nil
+        runtimeStatsHistory.removeAll(keepingCapacity: true)
     }
 
     func installBundledRuntimeAndRegister() {

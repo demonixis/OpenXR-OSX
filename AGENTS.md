@@ -21,6 +21,9 @@ distribution so it can scan known apps, install the bundled runtime, launch comp
 The companion shows a main-window runtime activity summary from
 `~/Library/Application Support/OpenXR-OSX/runtime_status.json`, including idle/streaming state,
 transport, connected device family, active OpenXR application, and WiFi/USB transport readiness.
+The companion can enable a Developer tab from its Settings tab, open the macOS simulator in a
+same-process window backed by the shared `OpenXRSimulator` Swift package, and show live runtime
+streaming statistics from the existing telemetry path.
 As of March 17, 2026, the pinned non-interactive OpenXR-CTS baseline is fully green locally:
 63 passed, 36 skipped, 0 failed.
 
@@ -69,7 +72,10 @@ openxr_osx/
 ├── cmake/RunOpenXRCTS.cmake
 ├── runtime/
 ├── clients/
-│   ├── common/src/Protocol.h
+│   ├── common/
+│   │   ├── src/Protocol.h
+│   │   ├── OpenXRStreaming/
+│   │   └── OpenXRSimulator/
 │   ├── android-openxr/
 │   ├── simulator/
 │   ├── companion/
@@ -89,10 +95,13 @@ openxr_osx/
 cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
 cmake --build build
 ctest --test-dir build --output-on-failure
+swift test --package-path clients/common/OpenXRStreaming
+swift build --package-path clients/common/OpenXRSimulator
 swiftc -parse-as-library \
   "clients/companion/OpenXR OSX Companion/CompanionSupport.swift" \
   "clients/companion/OpenXR OSX Companion/OpenXRServerConfig.swift" \
   "clients/companion/OpenXR OSX Companion/CompanionLauncher.swift" \
+  "clients/companion/OpenXR OSX Companion/CompanionPreferences.swift" \
   tests/CompanionLauncherTests.swift \
   -o /tmp/openxr_companion_launcher_tests && /tmp/openxr_companion_launcher_tests
 xcodebuild -project "clients/companion/OpenXR OSX Companion.xcodeproj" \

@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		AA316C802F6ED30000BA3729 /* OpenXRStreaming in Frameworks */ = {isa = PBXBuildFile; productRef = AA316C7F2F6ED30000BA3729 /* OpenXRStreaming */; };
+		AA316C802F6ED30000BA3729 /* OpenXRSimulator in Frameworks */ = {isa = PBXBuildFile; productRef = AA316C7F2F6ED30000BA3729 /* OpenXRSimulator */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -27,7 +27,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				AA316C802F6ED30000BA3729 /* OpenXRStreaming in Frameworks */,
+				AA316C802F6ED30000BA3729 /* OpenXRSimulator in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -70,7 +70,7 @@
 			);
 			name = "OpenXR Simulator";
 			packageProductDependencies = (
-				AA316C7F2F6ED30000BA3729 /* OpenXRStreaming */,
+				AA316C7F2F6ED30000BA3729 /* OpenXRSimulator */,
 			);
 			productName = "OpenXR Simulator";
 			productReference = AA316C6B2F6ED21800BA3729 /* OpenXR Simulator.app */;
@@ -101,7 +101,7 @@
 			mainGroup = AA316C622F6ED21800BA3729;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				AA316C7E2F6ED30000BA3729 /* XCLocalSwiftPackageReference "../common/OpenXRStreaming" */,
+				AA316C7E2F6ED30000BA3729 /* XCLocalSwiftPackageReference "../common/OpenXRSimulator" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = AA316C6C2F6ED21800BA3729 /* Products */;
@@ -368,17 +368,17 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		AA316C7E2F6ED30000BA3729 /* XCLocalSwiftPackageReference "../common/OpenXRStreaming" */ = {
+		AA316C7E2F6ED30000BA3729 /* XCLocalSwiftPackageReference "../common/OpenXRSimulator" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = ../common/OpenXRStreaming;
+			relativePath = ../common/OpenXRSimulator;
 		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		AA316C7F2F6ED30000BA3729 /* OpenXRStreaming */ = {
+		AA316C7F2F6ED30000BA3729 /* OpenXRSimulator */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = AA316C7E2F6ED30000BA3729 /* XCLocalSwiftPackageReference "../common/OpenXRStreaming" */;
-			productName = OpenXRStreaming;
+			package = AA316C7E2F6ED30000BA3729 /* XCLocalSwiftPackageReference "../common/OpenXRSimulator" */;
+			productName = OpenXRSimulator;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

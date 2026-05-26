@@ -6,12 +6,16 @@ The simulator is the local debug path inside the unified viewer app. It lets you
 
 ## App Layout
 
-The unified SwiftUI viewer lives in `clients/simulator/` and now exposes two viewing modes:
+The reusable SwiftUI simulator implementation lives in
+`clients/common/OpenXRSimulator/` and exposes `OpenXRSimulatorView`. The standalone app in
+`clients/simulator/` is a thin wrapper around that shared view.
+
+The viewer exposes two viewing modes:
 
 - `Simulator`: mono preview with simulation controls
 - `StereoView`: stereo side-by-side presentation for headset-style viewing on iOS
 
-On macOS, the app is primarily used in `Simulator` mode. On iOS, the same target can switch between `Simulator` and `StereoView` from the in-app settings sheet.
+On macOS, the app is primarily used in `Simulator` mode. On iOS, the same target can switch between `Simulator` and `StereoView` from the in-app settings sheet. The macOS Companion can also open `OpenXRSimulatorView` from its Developer tab when Developer Mode is enabled.
 
 ## How Simulator Mode Works
 

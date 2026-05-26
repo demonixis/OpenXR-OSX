@@ -1,16 +1,18 @@
 // SPDX-License-Identifier: MPL-2.0
 
-// ContentView.swift — Unified viewer UI for simulator and stereo modes.
+// OpenXRSimulatorView.swift — Unified viewer UI for simulator and stereo modes.
 
 import MetalKit
 import OpenXRStreaming
 import SwiftUI
 
-struct ContentView: View {
+public struct OpenXRSimulatorView: View {
     @State private var model = SimulatorModel()
     @State private var showSettings = false
 
-    var body: some View {
+    public init() {}
+
+    public var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
 

@@ -8,14 +8,21 @@
 //
 
 import SwiftUI
+import OpenXRSimulator
 
 @main
 struct OpenXR_OSX_CompanionApp: App {
     @StateObject private var model = CompanionAppModel()
+    @StateObject private var preferences = CompanionPreferences()
 
     var body: some Scene {
         WindowGroup {
-            ContentView(model: model)
+            ContentView(model: model, preferences: preferences)
         }
+
+        Window("OpenXR Simulator", id: CompanionWindowID.simulator) {
+            OpenXRSimulatorView()
+        }
+        .defaultSize(width: 1280, height: 720)
     }
 }

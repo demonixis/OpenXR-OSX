@@ -926,6 +926,43 @@ void StreamingServer::EncodeThread()
                     MetricSummary callbackSummary = telemetry->callbackLatencyMs.Consume();
                     MetricSummary totalSummary = telemetry->totalPipelineMs.Consume();
 
+                    const uint32_t replacedFrames = replacedFrameCount_.exchange(0);
+                    const uint32_t encoderDrops = encoder->GetDroppedFrameCount();
+                    const uint32_t keyframeRequests = requestKeyframeCount_.exchange(0);
+                    const uint32_t pendingDepthMax = pendingFrameDepthMax_.exchange(0);
+
+                    RuntimeStatus::StreamingStats stats = {};
+                    stats.refreshRateHz = targetRefreshRateHz_.load();
+                    stats.currentBitrateMbps = currentBitrateMbps_.load();
+                    stats.maxBitrateMbps = configMaxBitrateMbps_.load();
+                    stats.renderWidth = renderWidth_ * 2;
+                    stats.renderHeight = renderHeight_;
+                    stats.encodedWidth = scaledWidth_ * 2;
+                    stats.encodedHeight = scaledHeight_;
+                    stats.serverPipelineLatencyMs = serverPipelineLatencyMs_.load();
+                    stats.clientPipelineLatencyMs = clientPipelineLatencyMs_.load();
+                    stats.clientReceiveToSubmitMs = clientReceiveToSubmitMs_.load();
+                    stats.clientDecodeMs = clientDecodeLatencyMs_.load();
+                    stats.clientCompositorMs = clientCompositorLatencyMs_.load();
+                    stats.predictionHorizonMs = trackingReceiver_ ?
+                        trackingReceiver_->GetPredictionHorizonMs() : 0.0f;
+                    stats.encodeQueueAverageMs = queueSummary.average;
+                    stats.encodeQueueP95Ms = queueSummary.p95;
+                    stats.encodeGpuAverageMs = gpuSummary.average;
+                    stats.encodeGpuP95Ms = gpuSummary.p95;
+                    stats.encodeSubmitAverageMs = submitSummary.average;
+                    stats.encodeSubmitP95Ms = submitSummary.p95;
+                    stats.encodeCallbackAverageMs = callbackSummary.average;
+                    stats.encodeCallbackP95Ms = callbackSummary.p95;
+                    stats.encodeTotalAverageMs = totalSummary.average;
+                    stats.encodeTotalP95Ms = totalSummary.p95;
+                    stats.encodedFramesTotal = encoder->GetEncodedFrameCount();
+                    stats.encoderDroppedFramesTotal = encoderDrops;
+                    stats.replacedFramesDelta = replacedFrames;
+                    stats.keyframeRequestsDelta = keyframeRequests;
+                    stats.pendingDepthMax = pendingDepthMax;
+                    RuntimeStatus::SetStreamingStats(stats);
+
                     spdlog::info(
                         "StreamingServer: encode queue(avg/p95={:.2f}/{:.2f}ms) gpu({:.2f}/{:.2f}) "
                         "submit({:.3f}/{:.3f}) callback({:.2f}/{:.2f}) total({:.2f}/{:.2f}) "
@@ -935,10 +972,10 @@ void StreamingServer::EncodeThread()
                         submitSummary.average, submitSummary.p95,
                         callbackSummary.average, callbackSummary.p95,
                         totalSummary.average, totalSummary.p95,
-                        replacedFrameCount_.exchange(0),
-                        encoder->GetDroppedFrameCount(),
-                        requestKeyframeCount_.exchange(0),
-                        pendingFrameDepthMax_.exchange(0));
+                        replacedFrames,
+                        encoderDrops,
+                        keyframeRequests,
+                        pendingDepthMax);
 
                     telemetry->lastLogTime = now;
                 }
@@ -1008,7 +1045,7 @@ void StreamingServer::HandleClientConnect(const oxr::protocol::ClientConnect& cl
             uint32_t bitrateMbps = (clientConnect.maxBitrateMbps > 0)
                 ? std::min(config.bitrateMbps, clientConnect.maxBitrateMbps)
                 : config.bitrateMbps;
-            configMaxBitrateMbps_ = bitrateMbps;
+            configMaxBitrateMbps_.store(bitrateMbps);
             currentBitrateMbps_.store(bitrateMbps);
             lastBitrateIncreaseTimeNs_ = SteadyClockNowNs();
             lastKeyframeRequestCountForAbr_ = 0;
@@ -1090,7 +1127,7 @@ void StreamingServer::HandleUsbClientConnect(const oxr::protocol::ClientConnect&
             uint32_t bitrateMbps = (clientConnect.maxBitrateMbps > 0)
                 ? std::min(config.bitrateMbps, clientConnect.maxBitrateMbps)
                 : config.bitrateMbps;
-            configMaxBitrateMbps_ = bitrateMbps;
+            configMaxBitrateMbps_.store(bitrateMbps);
             currentBitrateMbps_.store(bitrateMbps);
             lastBitrateIncreaseTimeNs_ = SteadyClockNowNs();
             lastKeyframeRequestCountForAbr_ = 0;
@@ -1225,7 +1262,7 @@ void StreamingServer::HandleLatencyReport(const oxr::protocol::LatencyReport& re
         bool shouldDecrease = (smoothed > kLatencyHighMs) || (newKeyframeRequests > 0);
         bool canIncrease = (smoothed < kLatencyTargetMs) && (newKeyframeRequests == 0) &&
                            (nowNs - lastBitrateIncreaseTimeNs_ >= kIncreaseIntervalNs) &&
-                           (currentBitrate < configMaxBitrateMbps_);
+                           (currentBitrate < configMaxBitrateMbps_.load());
 
         uint32_t newBitrate = currentBitrate;
         if (shouldDecrease && currentBitrate > kMinBitrateMbps)
@@ -1234,7 +1271,8 @@ void StreamingServer::HandleLatencyReport(const oxr::protocol::LatencyReport& re
         }
         else if (canIncrease)
         {
-            newBitrate = std::min(currentBitrate + currentBitrate / 20, configMaxBitrateMbps_); // +5%
+            newBitrate = std::min(currentBitrate + currentBitrate / 20,
+                                  configMaxBitrateMbps_.load()); // +5%
             lastBitrateIncreaseTimeNs_ = nowNs;
         }
 

@@ -2026,6 +2026,62 @@ TEST_CASE("EndFrame rejects invalid projection and quad layers", "[runtime][fram
         XR_ERROR_VALIDATION_FAILURE);
 }
 
+TEST_CASE("EndFrame accepts a released projection image while another swapchain image is acquired", "[runtime][frame][swapchain]")
+{
+    RuntimeSessionContext context({XR_KHR_METAL_ENABLE_EXTENSION_NAME});
+    XrFrameState frameState = {XR_TYPE_FRAME_STATE};
+    XR_CHECK(xrWaitFrame(context.session, nullptr, &frameState));
+    XR_BEGIN_FRAME_CHECK(xrBeginFrame(context.session, nullptr));
+
+    const int64_t format = SelectColorSwapchainFormat(context.session);
+    XrSwapchain swapchain = CreateColorSwapchain(context.session, format);
+
+    XrSwapchainImageWaitInfo waitInfo = {XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+    waitInfo.timeout = 0;
+
+    uint32_t releasedImageIndex = 0;
+    XR_CHECK(xrAcquireSwapchainImage(swapchain, nullptr, &releasedImageIndex));
+    XR_CHECK(xrWaitSwapchainImage(swapchain, &waitInfo));
+    XR_CHECK(xrReleaseSwapchainImage(swapchain, nullptr));
+
+    uint32_t pipelinedImageIndex = 0;
+    XR_CHECK(xrAcquireSwapchainImage(swapchain, nullptr, &pipelinedImageIndex));
+
+    XrCompositionLayerProjectionView projectionViews[2] = {};
+    for (auto& view : projectionViews)
+    {
+        view.type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
+        view.pose.orientation.w = 1.0f;
+        view.fov.angleLeft = -0.5f;
+        view.fov.angleRight = 0.5f;
+        view.fov.angleUp = 0.5f;
+        view.fov.angleDown = -0.5f;
+        view.subImage.swapchain = swapchain;
+        view.subImage.imageRect.extent = {16, 16};
+    }
+
+    XrCompositionLayerProjection projectionLayer = {XR_TYPE_COMPOSITION_LAYER_PROJECTION};
+    projectionLayer.space = context.localSpace;
+    projectionLayer.viewCount = 2;
+    projectionLayer.views = projectionViews;
+
+    const XrCompositionLayerBaseHeader* layers[] = {
+        reinterpret_cast<const XrCompositionLayerBaseHeader*>(&projectionLayer),
+    };
+
+    XrFrameEndInfo frameEndInfo = {XR_TYPE_FRAME_END_INFO};
+    frameEndInfo.displayTime = frameState.predictedDisplayTime;
+    frameEndInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+    frameEndInfo.layerCount = 1;
+    frameEndInfo.layers = layers;
+
+    CHECK(xrEndFrame(context.session, &frameEndInfo) == XR_SUCCESS);
+
+    XR_CHECK(xrWaitSwapchainImage(swapchain, &waitInfo));
+    XR_CHECK(xrReleaseSwapchainImage(swapchain, nullptr));
+    XR_CHECK(xrDestroySwapchain(swapchain));
+}
+
 TEST_CASE("Space and view validation matches CTS expectations", "[runtime][space]")
 {
     RuntimeSessionContext context({XR_KHR_METAL_ENABLE_EXTENSION_NAME});

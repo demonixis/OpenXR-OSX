@@ -98,6 +98,20 @@ target_compile_definitions(openxr_osx_tests PRIVATE
 )
 add_test(NAME openxr_osx_tests COMMAND openxr_osx_tests)
 
+add_executable(openxr_osx_status_tests
+    tests/TestRuntimeStatus.cpp
+    runtime/src/RuntimeStatus.cpp
+    runtime/src/Config.cpp
+)
+target_include_directories(openxr_osx_status_tests PRIVATE
+    runtime/src
+)
+target_link_libraries(openxr_osx_status_tests PRIVATE
+    Catch2::Catch2WithMain
+    spdlog::spdlog
+)
+add_test(NAME openxr_osx_status_tests COMMAND openxr_osx_status_tests)
+
 add_executable(openxr_osx_runtime_tests
     tests/TestRuntimeApi.cpp
 )
@@ -118,7 +132,12 @@ set_tests_properties(openxr_osx_runtime_tests PROPERTIES
     ENVIRONMENT "XR_RUNTIME_JSON=$<TARGET_FILE_DIR:openxr_osx>/openxr_osx.json"
 )
 
-add_dependencies(openxr_osx_sync_compile_commands openxr_osx openxr_osx_tests openxr_osx_runtime_tests)
+add_dependencies(openxr_osx_sync_compile_commands
+    openxr_osx
+    openxr_osx_tests
+    openxr_osx_status_tests
+    openxr_osx_runtime_tests
+)
 
 option(OPENXR_OSX_ENABLE_CTS "Fetch and wire an opt-in OpenXR CTS lane" OFF)
 

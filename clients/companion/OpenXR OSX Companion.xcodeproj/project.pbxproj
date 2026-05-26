@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		AADA22A72F70000100F517AB /* OpenXRSimulator in Frameworks */ = {isa = PBXBuildFile; productRef = AADA22A92F70000100F517AB /* OpenXRSimulator */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		AADA22992F6BFD7600F517AB /* OpenXR OSX Companion.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "OpenXR OSX Companion.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -23,6 +27,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AADA22A72F70000100F517AB /* OpenXRSimulator in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -65,6 +70,7 @@
 			);
 			name = "OpenXR OSX Companion";
 			packageProductDependencies = (
+				AADA22A92F70000100F517AB /* OpenXRSimulator */,
 			);
 			productName = "OpenXR OSX Companion";
 			productReference = AADA22992F6BFD7600F517AB /* OpenXR OSX Companion.app */;
@@ -94,6 +100,9 @@
 			);
 			mainGroup = AADA22902F6BFD7600F517AB;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				AADA22A82F70000100F517AB /* XCLocalSwiftPackageReference "../common/OpenXRSimulator" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = AADA229A2F6BFD7600F517AB /* Products */;
 			projectDirPath = "";
@@ -359,6 +368,21 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		AADA22A82F70000100F517AB /* XCLocalSwiftPackageReference "../common/OpenXRSimulator" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../common/OpenXRSimulator;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		AADA22A92F70000100F517AB /* OpenXRSimulator */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AADA22A82F70000100F517AB /* XCLocalSwiftPackageReference "../common/OpenXRSimulator" */;
+			productName = OpenXRSimulator;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = AADA22912F6BFD7600F517AB /* Project object */;
 }

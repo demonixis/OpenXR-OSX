@@ -20,6 +20,7 @@ struct CompanionLauncherTests {
         try testRuntimeActivityParsing()
         try testMacWifiParsing()
         try testAdbStatusDisplay()
+        try testDeveloperModePreferencePersistence()
         print("Companion launcher tests passed")
     }
 
@@ -178,6 +179,66 @@ struct CompanionLauncherTests {
         try expect(status?.stateDisplayName == "Streaming (USB)", "Expected USB display state")
         try expect(status?.deviceDisplayName == "Quest", "Expected Quest display name")
         try expect(status?.applicationName == "Unity", "Expected application name")
+        try expect(status?.streamingStats == nil, "Expected legacy runtime status to omit stats")
+
+        let statusWithStats = CompanionRuntimeActivity.parse(Data("""
+        {
+          "state": "streaming",
+          "transport": "wifi",
+          "device_type": "simulator",
+          "client_name": "OpenXR Viewer",
+          "application_name": "Godot",
+          "process_id": 43,
+          "updated_at_unix_ms": 1800000001000,
+          "streaming_stats": {
+            "sample_unix_ms": 1800000001000,
+            "refresh_rate_hz": 90,
+            "current_bitrate_mbps": 42,
+            "max_bitrate_mbps": 50,
+            "render_width": 3664,
+            "render_height": 1920,
+            "encoded_width": 2752,
+            "encoded_height": 1440,
+            "latency_ms": {
+              "server_pipeline": 12.5,
+              "client_pipeline": 18.25,
+              "client_receive_to_submit": 1.5,
+              "client_decode": 6.75,
+              "client_compositor": 11.0,
+              "prediction_horizon": 30.75
+            },
+            "encode_ms": {
+              "queue_avg": 0.5,
+              "queue_p95": 1.25,
+              "gpu_avg": 2.0,
+              "gpu_p95": 3.5,
+              "submit_avg": 0.1,
+              "submit_p95": 0.2,
+              "callback_avg": 4.0,
+              "callback_p95": 5.5,
+              "total_avg": 8.0,
+              "total_p95": 9.5
+            },
+            "counters": {
+              "encoded_frames_total": 120,
+              "encoder_dropped_frames_total": 2,
+              "replaced_frames_delta": 3,
+              "keyframe_requests_delta": 1,
+              "pending_depth_max": 1
+            }
+          }
+        }
+        """.utf8))
+
+        let stats = statusWithStats?.streamingStats
+        try expect(stats?.refreshRateHz == 90, "Expected runtime stats refresh rate")
+        try expect(stats?.currentBitrateMbps == 42, "Expected runtime stats bitrate")
+        try expect(stats?.encodedWidth == 2752, "Expected runtime stats encoded width")
+        try expect(stats?.latency.serverPipelineMs == 12.5, "Expected server latency parse")
+        try expect(stats?.latency.predictionHorizonMs == 30.75, "Expected prediction horizon parse")
+        try expect(stats?.encode.totalP95Ms == 9.5, "Expected encode p95 parse")
+        try expect(stats?.counters.encodedFramesTotal == 120, "Expected encoded frame counter parse")
+        try expect(stats?.counters.keyframeRequestsDelta == 1, "Expected keyframe counter parse")
     }
 
     private static func testMacWifiParsing() throws {
@@ -204,6 +265,29 @@ struct CompanionLauncherTests {
             CompanionAdbInstallGuidance.message.contains("brew install adb-enhanced"),
             "Expected Homebrew install guidance"
         )
+    }
+
+    private static func testDeveloperModePreferencePersistence() throws {
+        let suiteName = "openxr-companion-preferences-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            throw CompanionLauncherTestFailure(description: "Expected isolated user defaults")
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        defaults.removePersistentDomain(forName: suiteName)
+
+        let preferences = CompanionPreferences(defaults: defaults)
+        try expect(!preferences.developerModeEnabled, "Expected developer mode to default off")
+
+        preferences.developerModeEnabled = true
+        try expect(defaults.bool(forKey: CompanionPreferences.developerModeEnabledKey), "Expected developer mode to persist")
+
+        let reloaded = CompanionPreferences(defaults: defaults)
+        try expect(reloaded.developerModeEnabled, "Expected developer mode to reload from defaults")
+
+        reloaded.developerModeEnabled = false
+        try expect(!defaults.bool(forKey: CompanionPreferences.developerModeEnabledKey), "Expected developer mode to clear")
     }
 
     private static func makeAppBundle(

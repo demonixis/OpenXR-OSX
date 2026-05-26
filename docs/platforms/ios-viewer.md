@@ -26,7 +26,7 @@ The iOS path is still a lightweight remote-viewing workflow for experimentation 
 - low-friction experimentation
 - clear separation from headset-class features
 - realistic scope for a future prototype
-- shared implementation with the simulator path to avoid duplicate client stacks
+- shared implementation in `clients/common/OpenXRSimulator/` to avoid duplicate client stacks
 
 ## Current Workflow
 
