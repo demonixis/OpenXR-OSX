@@ -2,7 +2,7 @@
 
 ## Scope
 
-This document is the entry point for source build workflows. If a tagged binary already covers your use case, start with [releases.md](releases.md) instead. Installation steps live in [install.md](install.md). Platform-specific steps live under `docs/platforms/`.
+This document is the entry point for source build workflows. Installation steps live in [install.md](install.md). Platform-specific steps live under `docs/platforms/`.
 
 ## Before You Build
 

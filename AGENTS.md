@@ -49,7 +49,7 @@ As of March 17, 2026, the pinned non-interactive OpenXR-CTS baseline is fully gr
 
 Avoid duplicating the same guidance in multiple files. If commands, platform status, or CTS results change, update the single page that owns that topic and keep cross-links accurate.
 
-Keep binary-first release guidance in `docs/releases.md`, host prerequisite details in `docs/install.md`, and source build commands in `docs/build.md`.
+Keep host prerequisite details in `docs/install.md` and source build commands in `docs/build.md`.
 
 ## Important Technical Constraints
 

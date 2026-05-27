@@ -4,8 +4,6 @@
 
 This document lists the host tools and SDKs required to build and test the project on macOS, plus the Android tooling needed for the Quest client.
 
-If you only want to run tagged binaries, start with [releases.md](releases.md) and install only the host pieces needed for that artifact. The rest of this page is for source builds.
-
 ## Prefer Repo-Local Tooling With Mise
 
 The repository includes a local [`mise.toml`](../mise.toml) that pins the portable command-line tools used by the source workflow:
@@ -125,7 +123,6 @@ Optional but useful:
 
 ## Next Steps
 
-- Tagged binaries first: [releases.md](releases.md)
 - Build overview: [build.md](build.md)
 - Quest client workflow: [quest.md](platforms/quest.md)
 - Testing and CTS: [testing-and-conformance.md](testing-and-conformance.md)
