@@ -16,7 +16,6 @@ scripts/ci/verify-pr-lightweight.sh
 
 By default that runs:
 
-- commitlint against the current branch range relative to `origin/main`
 - Android client build
 - macOS Home app build
 - macOS simulator app build
@@ -24,8 +23,6 @@ By default that runs:
 
 Useful flags:
 
-- `--base-ref <ref>` to compare against a different base branch or SHA
-- `--head-ref <ref>` to lint a different head ref
 - `--skip-android` if you only need Apple-side validation
 - `--skip-visionos` if the local Xcode install does not include visionOS simulator support
 
