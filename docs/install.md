@@ -98,7 +98,7 @@ mise exec -- sdkmanager --install \
   "cmake;3.22.1"
 ```
 
-Then set `clients/android-openxr/local.properties`:
+Then set `clients/oxrsys-android/local.properties`:
 
 ```text
 sdk.dir=/Users/<you>/.local/share/mise/installs/android-sdk/20.0
@@ -108,7 +108,29 @@ If you are not using `mise`, point `sdk.dir` at your own Android SDK root instea
 
 ## Android Version Note
 
-The current Gradle configuration in the repository uses `compileSdk = 35`, `targetSdk = 32`, and `minSdk = 29`. Keep this document aligned with `clients/android-openxr/app/build.gradle.kts`.
+The current Gradle configuration in the repository uses `compileSdk = 35`, `targetSdk = 32`, and `minSdk = 29`. If `compileSdk` stays at `35`, you may also need:
+
+```bash
+sdkmanager --install "platforms;android-35"
+```
+
+Keep this document aligned with `clients/oxrsys-android/app/build.gradle.kts`.
+
+## Vulkan SDK And MoltenVK
+
+For Metal-only work, the macOS runtime builds without a full Vulkan SDK. For Vulkan interop work and Vulkan applications running through MoltenVK, install the macOS Vulkan SDK from LunarG.
+
+What you need from it:
+
+- Vulkan headers
+- MoltenVK
+- Vulkan tools useful for validation and debugging
+
+If you only need headers for local compilation, a lighter option is:
+
+```bash
+brew install vulkan-headers
+```
 
 ## OpenXR Samples And Clients
 

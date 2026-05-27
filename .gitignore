@@ -111,4 +111,5 @@ docs/api
 __pycache__
 *.pyc
 .cache
-clients/common/OpenXRStreaming/.build
+clients/common/OXRSysStreaming/.build
+clients/common/OXRSysSimulator/.build

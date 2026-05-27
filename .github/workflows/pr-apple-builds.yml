@@ -23,8 +23,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: companion
-            script: scripts/ci/build-companion.sh
+          - name: home
+            script: scripts/ci/build-home.sh
           - name: simulator
             script: scripts/ci/build-simulator.sh
           - name: visionos

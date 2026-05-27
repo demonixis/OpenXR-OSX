@@ -8,15 +8,15 @@ source "$(cd "$(dirname "$0")" && pwd)/common.sh"
 require_command xcodebuild
 ensure_visionos_platform
 
-log "Building visionOS player"
+log "Building OXRSys visionOS app"
 cd "${REPO_ROOT}"
 CI_HOME="$(derived_data_path visionos)/home"
 mkdir -p "${CI_HOME}"
 run /usr/bin/env \
     HOME="${CI_HOME}" \
     xcodebuild \
-    -project "clients/visionos/Vision Player.xcodeproj" \
-    -scheme "Vision Player" \
+    -project "clients/oxrsys-visionos/OXRSys visionOS.xcodeproj" \
+    -scheme "OXRSys visionOS" \
     -configuration Debug \
     -destination "generic/platform=visionOS" \
     -derivedDataPath "$(derived_data_path visionos)" \

@@ -11,7 +11,7 @@ Use tagged release assets first when they cover your target platform. Build from
 If a release includes macOS runtime or app artifacts for the version you want to try, prefer those over a local source build:
 
 - use the shipped runtime manifest and dynamic library together
-- use the shipped app bundle for the macOS companion, simulator, or viewer when one is provided
+- use the shipped app bundle for the macOS Home, simulator, or viewer when one is provided
 - keep source builds for development, debugging, and unreleased fixes
 
 You still need the normal macOS runtime registration step if you want GUI applications outside a shell session to see the runtime. See [build.md](build.md) for the runtime registration helper.

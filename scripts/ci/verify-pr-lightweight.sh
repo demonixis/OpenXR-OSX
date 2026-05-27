@@ -9,7 +9,7 @@ BASE_REF="${OPENXR_OSX_COMMITLINT_BASE_REF:-origin/main}"
 HEAD_REF="${OPENXR_OSX_COMMITLINT_HEAD_REF:-HEAD}"
 RUN_COMMITLINT=1
 RUN_ANDROID=1
-RUN_COMPANION=1
+RUN_HOME=1
 RUN_SIMULATOR=1
 RUN_VISIONOS=1
 
@@ -20,7 +20,7 @@ Usage: scripts/ci/verify-pr-lightweight.sh [options]
 Run the same lightweight verification lanes used on pull requests:
   - commitlint on the current branch commit range
   - Android client build
-  - macOS companion app build
+  - macOS Home app build
   - macOS simulator app build
   - visionOS player build
 
@@ -29,7 +29,7 @@ Options:
   --head-ref REF         Head ref for commitlint range. Default: HEAD
   --skip-commitlint      Skip commit message validation
   --skip-android         Skip Android client build
-  --skip-companion       Skip macOS companion build
+  --skip-home            Skip macOS Home build
   --skip-simulator       Skip macOS simulator build
   --skip-visionos        Skip visionOS player build
   -h, --help             Show this help text
@@ -60,8 +60,8 @@ while [[ $# -gt 0 ]]; do
             RUN_ANDROID=0
             shift
             ;;
-        --skip-companion)
-            RUN_COMPANION=0
+        --skip-home)
+            RUN_HOME=0
             shift
             ;;
         --skip-simulator)
@@ -106,8 +106,8 @@ if [[ "${RUN_ANDROID}" -eq 1 ]]; then
     run "${REPO_ROOT}/scripts/ci/build-android.sh"
 fi
 
-if [[ "${RUN_COMPANION}" -eq 1 ]]; then
-    run "${REPO_ROOT}/scripts/ci/build-companion.sh"
+if [[ "${RUN_HOME}" -eq 1 ]]; then
+    run "${REPO_ROOT}/scripts/ci/build-home.sh"
 fi
 
 if [[ "${RUN_SIMULATOR}" -eq 1 ]]; then

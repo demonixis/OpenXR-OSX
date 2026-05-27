@@ -12,5 +12,5 @@ ensure_android_packages
 write_android_local_properties
 
 log "Building Android client"
-cd "${REPO_ROOT}/clients/android-openxr"
+cd "${REPO_ROOT}/clients/oxrsys-android"
 run ./gradlew --no-daemon :app:assembleDebug

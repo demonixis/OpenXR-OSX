@@ -89,7 +89,7 @@ ensure_android_packages() {
 write_android_local_properties() {
     local sdk_root
     sdk_root="$(android_sdk_root)"
-    local target="${REPO_ROOT}/clients/android-openxr/local.properties"
+    local target="${REPO_ROOT}/clients/oxrsys-android/local.properties"
 
     log "Writing ${target}"
     cat > "${target}" <<EOF

@@ -14,8 +14,8 @@ mkdir -p "${CI_HOME}"
 run /usr/bin/env \
     HOME="${CI_HOME}" \
     xcodebuild \
-    -project "clients/simulator/OpenXR Simulator.xcodeproj" \
-    -scheme "OpenXR Simulator" \
+    -project "clients/oxrsys-simulator/OXRSys Simulator.xcodeproj" \
+    -scheme "OXRSys Simulator" \
     -configuration Debug \
     -destination "platform=macOS" \
     -derivedDataPath "$(derived_data_path simulator)" \
