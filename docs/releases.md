@@ -28,7 +28,7 @@ Use a source build when you need branch-only Android changes, custom instrumenta
 
 ## Release Process
 
-Releases are cut manually by the maintainer. There is no CI publishing path: tags, `CHANGELOG.md` entries, and uploaded GitHub Release assets are produced by hand from a local build. Conventional Commit subjects keep the history readable when assembling release notes, but no automation consumes them.
+Releases are cut manually by the maintainer. There is no CI publishing path: tags, `CHANGELOG.md` entries, and uploaded GitHub Release assets are produced by hand from a local build.
 
 ## When To Build From Source
 

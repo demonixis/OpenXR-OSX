@@ -79,7 +79,7 @@ The repository now ships a local [`mise.toml`](mise.toml) for portable tool pinn
 
 Contributions from humans and LLM-assisted workflows are welcome. Keep changes small, tested, and documented: if behavior, architecture, build steps, or platform support changes, update the relevant files in `docs/` and `AGENTS.md` in the same patch.
 
-Use Conventional Commits for commit subjects, for example `feat(runtime): add client refresh-rate negotiation` or `ci: cache build artifacts for faster pr feedback`. Tagged releases and `CHANGELOG.md` are cut manually by the maintainer; there is no CI publishing path.
+Tagged releases and `CHANGELOG.md` are cut manually by the maintainer; there is no CI publishing path.
 
 Before considering a change ready, run `scripts/ci/verify-pr-lightweight.sh` for the always-on pull request checks. If you touch runtime, CMake, or protocol-sensitive behavior, also run `scripts/ci/verify-macos-runtime-heavy.sh`. If you touch runtime API or conformance-sensitive behavior, run the CTS lane when practical.
 
