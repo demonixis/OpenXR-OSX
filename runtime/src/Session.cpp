@@ -465,6 +465,7 @@ XrResult Session::EndFrame(const XrFrameEndInfo* frameEndInfo)
     // Extract submitted eye textures for streaming
     void* leftTex = nullptr;
     void* rightTex = nullptr;
+    uint64_t snapshotValue = 0; // this frame's snapshot signal value, forwarded to the encoder for a GPU-side wait
 
     for (uint32_t i = 0; i < frameEndInfo->layerCount; i++)
     {
@@ -479,7 +480,8 @@ XrResult Session::EndFrame(const XrFrameEndInfo* frameEndInfo)
             case XR_TYPE_COMPOSITION_LAYER_PROJECTION:
             {
                 XrResult result = ValidateProjectionLayer(
-                    *reinterpret_cast<const XrCompositionLayerProjection*>(layer), leftTex, rightTex);
+                    *reinterpret_cast<const XrCompositionLayerProjection*>(layer), leftTex, rightTex,
+                    snapshotValue);
                 if (result != XR_SUCCESS)
                 {
                     Swapchain::ReleaseTextureSlice(leftTex);
@@ -511,7 +513,7 @@ XrResult Session::EndFrame(const XrFrameEndInfo* frameEndInfo)
     if (streamingServer_ && streamingServer_->IsClientConnected())
     {
         auto sendStart = Clock::now();
-        streamingServer_->SendFrame(leftTex, rightTex);
+        streamingServer_->SendFrame(leftTex, rightTex, snapshotValue);
         double enqueueMs = std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(
             Clock::now() - sendStart).count();
 
@@ -593,7 +595,8 @@ XrResult Session::ValidateSwapchainSubImage(const XrSwapchainSubImage& subImage)
 }
 
 XrResult Session::ValidateProjectionLayer(const XrCompositionLayerProjection& layer,
-                                          void*& leftTex, void*& rightTex) const
+                                          void*& leftTex, void*& rightTex,
+                                          uint64_t& snapshotValue) const
 {
     auto* space = Runtime::Get().FromHandle<Space>(reinterpret_cast<uint64_t>(layer.space));
     if (space == nullptr || space->GetSession() != this)
@@ -628,6 +631,9 @@ XrResult Session::ValidateProjectionLayer(const XrCompositionLayerProjection& la
         if (viewIndex == 0)
         {
             leftTex = textureSlice;
+            // Both eyes come from the same release of the same swapchain and share
+            // the same snapshot signal value, so read it once.
+            snapshotValue = swapchain->GetLastSnapshotValue();
         }
         else
         {

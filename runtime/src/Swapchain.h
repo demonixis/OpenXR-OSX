@@ -75,6 +75,12 @@ public:
     // Release a texture view obtained from GetLastReleasedTextureSlice.
     static void ReleaseTextureSlice(void* textureSlice);
 
+    // Monotonic value signaled on the shared event by the most recent snapshot.
+    // Before reading the matching staging texture, the encoder waits on this value
+    // (encodeWaitForEvent, a GPU-side wait for the snapshot copy to complete).
+    // 0 means no snapshot yet (the caller falls back to referencing the slot).
+    uint64_t GetLastSnapshotValue() const;
+
     uint32_t GetArraySize() const
     {
         return arraySize_;
@@ -83,6 +89,20 @@ public:
     bool HasReleasedImage() const;
 
     static constexpr uint32_t SwapchainImageCount = 3;
+
+    // Picture-going-backwards root-cause fix: the encoder is asynchronous and reads
+    // a swapchain slot via a blit on its own command queue, while Unity reuses the
+    // same set of slots to render later frames — so the content the encoder reads
+    // gets clobbered by that asynchronous reuse (confirmed by a discriminating
+    // experiment: increasing the buffer count made the contamination span larger
+    // and the judder worse). The fix: at ReleaseImage time, use Unity's own queue
+    // to snapshot the current slot's contents into a separate pool of staging
+    // textures (not part of Unity's reuse cycle), and have GetLastReleasedTextureSlice
+    // return a staging view, so the content the encoder reads is fixed as of release.
+    // Only needs to cover the frames in flight between a slot's release and the encoder
+    // reading its snapshot; with the latest-frame-only encode queue that is ~2-3, so 4
+    // is a safe round-up that keeps the extra resident-texture memory low.
+    static constexpr uint32_t StagingImageCount = 4;
 
 private:
     enum class ImageState
@@ -116,6 +136,14 @@ private:
     uint32_t lastReleasedIndex_ = 0;
     bool staticImageAcquired_ = false;
     bool hasReleasedImage_ = false;
+
+    // Separate snapshot texture pool (see StagingImageCount). Only used on the
+    // Metal path and only once Unity's command queue is available.
+    std::vector<void*> stagingTextures_; // MTL::Texture*, same descriptor as swapchain textures
+    uint32_t stagingWriteIndex_ = 0;     // next staging slot to write (round-robin)
+    uint32_t lastSnapshotIndex_ = 0;     // staging slot of the most recent snapshot
+    uint64_t lastSnapshotValue_ = 0;     // value signaled on the shared event by that snapshot
+    bool hasSnapshot_ = false;           // whether at least one snapshot has been produced
     std::vector<ImageState> imageStates_;
     std::deque<uint32_t> acquiredImageOrder_;
     mutable std::mutex stateMutex_;

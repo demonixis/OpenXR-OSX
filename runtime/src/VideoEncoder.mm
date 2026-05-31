@@ -443,19 +443,25 @@ bool VideoEncoder::Encode(void* metalTexture, int64_t timestampNs, OnNalUnitCall
                            OnFrameEncodedCallback frameCallback)
 {
     return EncodeInternal(metalTexture, nullptr, false, timestampNs,
-                          std::move(callback), std::move(frameCallback));
+                          std::move(callback), 0, std::move(frameCallback));
 }
 
 bool VideoEncoder::EncodeStereo(void* leftTexture, void* rightTexture,
                                  int64_t timestampNs, OnNalUnitCallback callback,
+                                 uint64_t snapshotWaitValue,
                                  OnFrameEncodedCallback frameCallback)
 {
     return EncodeInternal(leftTexture, rightTexture, true, timestampNs,
-                          std::move(callback), std::move(frameCallback));
+                          std::move(callback), snapshotWaitValue, std::move(frameCallback));
 }
+
+// Shared snapshot-sync event (defined in Swapchain.mm). Before the encode blit reads
+// the staging texture, encodeWaitForEvent waits on it.
+extern void* gSnapshotEvent;
 
 bool VideoEncoder::EncodeInternal(void* leftTexture, void* rightTexture, bool stereo,
                                    int64_t timestampNs, OnNalUnitCallback callback,
+                                   uint64_t snapshotWaitValue,
                                    OnFrameEncodedCallback frameCallback)
 {
     if (session_ == nullptr || leftTexture == nullptr || (stereo && rightTexture == nullptr))
@@ -499,6 +505,15 @@ bool VideoEncoder::EncodeInternal(void* leftTexture, void* rightTexture, bool st
     {
         ReleaseSlot(slotIndex);
         return false;
+    }
+
+    // Non-blocking cross-queue sync: before this command buffer (on the encoder's own
+    // queue) reads the staging texture, wait GPU-side for the frame's snapshot blit to
+    // complete (the value Swapchain signaled on Unity's queue). The CPU does not block,
+    // preserving parallelism.
+    if (gSnapshotEvent != nullptr && snapshotWaitValue > 0)
+    {
+        [cmdBuf encodeWaitForEvent:(id<MTLSharedEvent>)gSnapshotEvent value:snapshotWaitValue];
     }
 
     bool forceKeyframe = forceKeyframe_.exchange(false);
