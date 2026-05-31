@@ -70,6 +70,14 @@ struct DebugUtilsMessengerState
 // Metal device — retained from xrGetMetalGraphicsRequirementsKHR
 static void* gMetalDevice = nullptr;
 
+// Unity's Metal command queue (from XrGraphicsBindingMetalKHR). The app renders
+// swapchain textures on it. The runtime encoder reads the same textures via a
+// blit on a separate queue, so it must synchronize the release->read against
+// this queue; otherwise the blit can read a stale slot before the app's render
+// completes (= picture going backwards). Non-static: accessed from Swapchain.mm
+// via extern.
+void* gUnityMetalCommandQueue = nullptr;
+
 // Suggested bindings storage: interactionProfile path -> list of (action handle, binding path string)
 struct SuggestedBinding
 {
@@ -865,6 +873,7 @@ static XRAPI_ATTR XrResult XRAPI_CALL OxrCreateSession(
     if (metalBinding)
     {
         gGraphicsApi = GraphicsApi::Metal;
+        gUnityMetalCommandQueue = metalBinding->commandQueue;
         gSession = std::make_unique<Session>(inst, gMetalDevice);
         *session = reinterpret_cast<XrSession>(gSession->GetHandle());
         spdlog::info("OXRSys: Session created with Metal binding");
@@ -887,6 +896,7 @@ static XRAPI_ATTR XrResult XRAPI_CALL OxrDestroySession(XrSession session)
     gActionSetsAttached = false;
     gAttachedActionSetHandles.clear();
     gSession.reset();
+    gUnityMetalCommandQueue = nullptr;
     return XR_SUCCESS;
 }
 

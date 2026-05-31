@@ -6,6 +6,20 @@
 #include <spdlog/spdlog.h>
 
 #import <Metal/Metal.h>
+#include <atomic>
+
+// Unity's Metal command queue (saved in xrCreateSession, EntryPoint.cpp). Used for
+// the release->read cross-queue synchronization; see ReleaseImage.
+extern void* gUnityMetalCommandQueue;
+
+// Non-blocking cross-queue sync: once a snapshot blit completes, a monotonically
+// increasing value is signaled on this MTLSharedEvent; the encoder (on its own
+// queue) issues encodeWaitForEvent for the matching value before reading the
+// staging texture, so the wait happens GPU-side without blocking the app thread,
+// while still letting Unity's rendering and the encode blit run in parallel.
+// Referenced via extern from VideoEncoder.mm.
+void* gSnapshotEvent = nullptr;               // id<MTLSharedEvent>
+static std::atomic<uint64_t> gSnapshotValue{0};
 
 #ifdef XR_USE_GRAPHICS_API_VULKAN
 #include <vulkan/vulkan.h>
@@ -155,6 +169,26 @@ void Swapchain::InitMetal(void* metalDevice, const XrSwapchainCreateInfo* create
     {
         id<MTLTexture> tex = [device newTextureWithDescriptor:desc];
         textures_[i] = (void*)[tex retain];
+    }
+
+    // Separate staging pool: same descriptor as the swapchain textures, not part
+    // of Unity's acquire/release reuse cycle. At ReleaseImage we snapshot the
+    // current slot into it, and the encoder reads the staging texture instead of
+    // the swapchain slot (avoiding reuse contamination).
+    if (imageCount_ > 1) // a static single-image swapchain has no reuse, so no snapshot needed
+    {
+        stagingTextures_.resize(StagingImageCount);
+        for (uint32_t i = 0; i < StagingImageCount; i++)
+        {
+            id<MTLTexture> tex = [device newTextureWithDescriptor:desc];
+            stagingTextures_[i] = (void*)[tex retain];
+        }
+        // Shared snapshot-sync event (one per process, monotonically increasing value).
+        if (gSnapshotEvent == nullptr)
+        {
+            id<MTLSharedEvent> ev = [device newSharedEvent];
+            gSnapshotEvent = (void*)[ev retain];
+        }
     }
 
     Runtime::Get().RegisterHandle(handle_, this);
@@ -309,6 +343,13 @@ Swapchain::~Swapchain()
             [(id<MTLTexture>)tex release];
         }
     }
+    for (auto* tex : stagingTextures_)
+    {
+        if (tex)
+        {
+            [(id<MTLTexture>)tex release];
+        }
+    }
     Runtime::Get().RemoveHandle(handle_);
 }
 
@@ -457,12 +498,48 @@ XrResult Swapchain::ReleaseImage(const XrSwapchainImageReleaseInfo* releaseInfo)
     imageStates_[releaseIndex] = ImageState::Available;
     hasReleasedImage_ = true;
     acquiredImageOrder_.pop_front();
+
+    // Picture-going-backwards root-cause fix (non-blocking): use Unity's own command
+    // queue to snapshot this frame's slot into a separate staging texture. The blit
+    // is submitted on Unity's queue, so it runs after the app's render commands for
+    // this frame -> it reads the correct rendered result. Instead of blocking the app
+    // thread with waitUntilCompleted, we signal a monotonic value on the shared event
+    // once the blit completes; the encoder issues encodeWaitForEvent for that value
+    // (a GPU-side wait) before reading the staging texture. The encoder thus reads
+    // content fixed as of release time, unaffected by Unity reusing the slot later.
+    // When Unity's queue is unavailable, fall back to referencing the slot directly.
+    if (gUnityMetalCommandQueue != nullptr && !stagingTextures_.empty() && gSnapshotEvent != nullptr)
+    {
+        id<MTLCommandQueue> unityQueue = (__bridge id<MTLCommandQueue>)gUnityMetalCommandQueue;
+        id<MTLTexture> src = (__bridge id<MTLTexture>)textures_[lastReleasedIndex_];
+        id<MTLTexture> dst = (__bridge id<MTLTexture>)stagingTextures_[stagingWriteIndex_];
+        if (src != nil && dst != nil)
+        {
+            uint64_t signalValue = ++gSnapshotValue;
+            id<MTLCommandBuffer> cb = [unityQueue commandBuffer];
+            id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
+            [blit copyFromTexture:src toTexture:dst];
+            [blit endEncoding];
+            [cb encodeSignalEvent:(id<MTLSharedEvent>)gSnapshotEvent value:signalValue];
+            [cb commit]; // non-blocking: do not wait for GPU completion
+            lastSnapshotIndex_ = stagingWriteIndex_;
+            lastSnapshotValue_ = signalValue;
+            stagingWriteIndex_ = (stagingWriteIndex_ + 1) % StagingImageCount;
+            hasSnapshot_ = true;
+        }
+    }
+
     return XR_SUCCESS;
 }
 
 // ============================================================================
 // GetLastReleasedTexture — always returns MTLTexture* (for debug renderer)
 // ============================================================================
+
+uint64_t Swapchain::GetLastSnapshotValue() const
+{
+    return lastSnapshotValue_;
+}
 
 void* Swapchain::GetLastReleasedTexture() const
 {
@@ -480,7 +557,15 @@ void* Swapchain::GetLastReleasedTextureSlice(uint32_t arrayIndex) const
         return nullptr;
     }
 
-    id<MTLTexture> tex = (id<MTLTexture>)textures_[lastReleasedIndex_];
+    // Picture-going-backwards root-cause fix: prefer the independent snapshot copied
+    // at release time (not subject to Unity reuse contamination); when there is no
+    // snapshot (Vulkan path / Unity queue unavailable), fall back to the swapchain slot.
+    void* srcTex = textures_[lastReleasedIndex_];
+    if (hasSnapshot_ && lastSnapshotIndex_ < stagingTextures_.size())
+    {
+        srcTex = stagingTextures_[lastSnapshotIndex_];
+    }
+    id<MTLTexture> tex = (id<MTLTexture>)srcTex;
     if (!tex)
     {
         return nullptr;

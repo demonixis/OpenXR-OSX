@@ -56,8 +56,13 @@ public:
 
     // Encode two Metal textures side-by-side (left eye | right eye)
     // The combined image has double the width of a single eye
+    // snapshotWaitValue: the signal value of this frame's staging snapshot on the
+    // shared event. Before the encode blit reads the staging texture it waits for
+    // this value GPU-side (encodeWaitForEvent), ensuring the snapshot copy is done
+    // without blocking the app thread. 0 = do not wait.
     bool EncodeStereo(void* leftTexture, void* rightTexture,
                       int64_t timestampNs, OnNalUnitCallback callback,
+                      uint64_t snapshotWaitValue = 0,
                       OnFrameEncodedCallback frameCallback = {});
 
     // Force a keyframe on the next encode
@@ -86,6 +91,7 @@ private:
 
     bool EncodeInternal(void* leftTexture, void* rightTexture, bool stereo,
                         int64_t timestampNs, OnNalUnitCallback callback,
+                        uint64_t snapshotWaitValue,
                         OnFrameEncodedCallback frameCallback);
     bool AcquireSlot(size_t& outSlotIndex);
     void ReleaseSlot(size_t slotIndex);

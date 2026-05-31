@@ -901,6 +901,7 @@ void StreamingServer::EncodeThread()
             {
                 SendNalUnit(packetDispatchState, frameIndex, nalData, nalSize, isKeyframe, timestampNs);
             },
+            frame.snapshotWaitValue,
             [this, telemetry, queueWaitMs, encoder](const VideoEncoder::FrameMetrics& metrics)
             {
                 telemetry->gpuCopyMs.Add(metrics.gpuCopyMs);
@@ -1356,7 +1357,8 @@ void StreamingServer::UpdatePredictionHorizon()
     trackingReceiver_->SetPredictionHorizonMs(horizonMs);
 }
 
-void StreamingServer::SendFrame(void* leftTexture, void* rightTexture)
+void StreamingServer::SendFrame(void* leftTexture, void* rightTexture,
+                                uint64_t snapshotWaitValue)
 {
     if (leftTexture == nullptr || rightTexture == nullptr || state_.load() != State::Connected)
     {
@@ -1388,6 +1390,7 @@ void StreamingServer::SendFrame(void* leftTexture, void* rightTexture)
         pendingFrame_.rightTexture = rightTexture;
         pendingFrame_.frameIndex = frameIndex_++;
         pendingFrame_.timestampNs = SteadyClockNowNs();
+        pendingFrame_.snapshotWaitValue = snapshotWaitValue;
         pendingFrame_.valid = true;
         pendingFrameDepthMax_.store(std::max(pendingFrameDepthMax_.load(), 1u));
 

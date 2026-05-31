@@ -54,7 +54,10 @@ public:
 
     // Queue a rendered frame for asynchronous latest-frame-only encoding.
     // leftTexture/rightTexture are retained MTLTexture* views from Swapchain.
-    void SendFrame(void* leftTexture, void* rightTexture);
+    // snapshotWaitValue: the staging-snapshot signal value carried through to the
+    // encoder so its blit waits for the snapshot copy GPU-side before reading.
+    void SendFrame(void* leftTexture, void* rightTexture,
+                   uint64_t snapshotWaitValue = 0);
 
     // Set the Metal device for VideoEncoder initialization
     void SetMetalDevice(void* metalDevice) { metalDevice_ = metalDevice; }
@@ -104,6 +107,9 @@ private:
         uint32_t frameIndex = 0;
         int64_t timestampNs = 0;
         bool valid = false;
+        // This frame's staging-snapshot signal value on the shared event; the encode
+        // blit waits for it (encodeWaitForEvent) before reading the staging texture.
+        uint64_t snapshotWaitValue = 0;
 
         // Render pose at the time this frame was submitted (for ATW correction)
         float headPosition[3] = {};
